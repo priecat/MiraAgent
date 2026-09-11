@@ -7,14 +7,12 @@ import net.itzq.mira.modules.ai.client.tool.annotation.ToolParam;
 import net.itzq.mira.modules.toolfun.ToolFun;
 import org.apache.commons.lang3.StringUtils;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.attribute.PosixFilePermission;
-import java.nio.file.attribute.PosixFilePermissions;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -162,9 +160,10 @@ public class FileEditTool {
 
             // 写回文件
             Files.write(path, newContent.getBytes(StandardCharsets.UTF_8));
-            // 加上执行权限 → 0755
-            Set<PosixFilePermission> perms = PosixFilePermissions.fromString("rwxr-xr-x");
-            Files.setPosixFilePermissions(path, perms);
+            File file = path.toFile();
+            file.setExecutable(true, false);
+            file.setReadable(true, false);
+            file.setWritable(true, false);
 
             // 生成 diff 预览
             String diffPreview = generateDiffPreview(fileContent, newContent, actualOldString, newString);

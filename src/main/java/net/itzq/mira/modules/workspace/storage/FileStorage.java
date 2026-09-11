@@ -11,12 +11,9 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.nio.file.attribute.PosixFilePermission;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -85,8 +82,10 @@ public class FileStorage {
         }
         try {
             Files.createDirectories(storageRoot);
-            Set<PosixFilePermission> perms = PosixFilePermissions.fromString("rwxr-xr-x");
-            Files.setPosixFilePermissions(storageRoot, perms); // 所有用户可读可写可执行
+            File file = storageRoot.toFile();
+            file.setExecutable(true, false);
+            file.setReadable(true, false);
+            file.setWritable(true, false);
 
             initialized = true;
             log.info("FileStorage 已初始化（磁盘目录已创建）: storageRoot={}", storageRoot);

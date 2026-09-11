@@ -15,5 +15,4 @@ import net.itzq.mira.modules.ai.client.openai.tool.ToolCall;
 public class CallToolBeginEvent extends BaseEvent {
     private ToolCall toolCall;
     private String toolId;
-    private StreamEventHandler handler;
 }

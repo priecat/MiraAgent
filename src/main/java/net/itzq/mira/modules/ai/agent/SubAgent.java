@@ -134,7 +134,7 @@ public class SubAgent extends BasicAgent {
         long cost = System.currentTimeMillis() - start;
 
         try {
-            countDownLatch.await(this.getTimeout(), TimeUnit.SECONDS);
+            countDownLatch.await(1, TimeUnit.HOURS);
         } catch (InterruptedException e) {
             return "执行失败：执行超时";
         }

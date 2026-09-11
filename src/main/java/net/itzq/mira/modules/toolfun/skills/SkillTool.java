@@ -27,7 +27,7 @@ public class SkillTool {
                     "参数skill_name为技能的slug标识，可通过<available_skills>列表查看。"
     )
     public String useSkill(
-            @ToolParam(description = "技能slug名称，例如 pptx-generator, minimax-pdf, minimax-xlsx, minimax-docx") String skill_name,
+            @ToolParam(description = "技能slug名称，例如frontend-design，可通过<available_skills>列表查看可用技能") String skill_name,
             AgentContextHolder context
     ) {
         // 校验技能是否在本次可用范围

@@ -16,5 +16,4 @@ public class CallToolEndEvent extends BaseEvent {
     private ToolCall toolCall;
     private String toolId;
     private String endMsg;
-    private StreamEventHandler handler;
 }

@@ -58,9 +58,9 @@ public class AgentContextHolder {
     @Builder.Default
     String currentChatLoopRoundId = IdGen.uuid();
 
-    IBasicAgent topAgent;
+    BasicAgent topAgent;
 
-    IBasicAgent parentAgent;
+    BasicAgent parentAgent;
 
     IEmitter emitter;
 
