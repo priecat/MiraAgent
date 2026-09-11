@@ -1,9 +1,9 @@
-# QAI Agent
+# MiraAgent
 
 
 ## 项目简介
 
-QAI Agent是一款轻量级 Java AI Agent 框架，实现最基础核心能力，可以快速接入、灵活定制智能体应用。
+MiraAgent 是一款轻量级 Java AI Agent 框架，实现最基础核心能力，可以快速接入、灵活定制智能体应用。
 
 ### 特性：
 - **动态加载**：全局单例配置，支持运行时动态变更
@@ -70,8 +70,8 @@ QAI Agent是一款轻量级 Java AI Agent 框架，实现最基础核心能力�
 <!-- 添加依赖 -->
 <dependency>
     <groupId>net.itzq.mira</groupId>
-    <artifactId>qai-agent-minified</artifactId>
-    <version>0.0.3-SNAPSHOT</version>
+    <artifactId>agent-core</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
 </dependency>
 ```
 
