@@ -273,7 +273,7 @@ public abstract class DefaultEventListener implements EventListener, IEmitter {
 
     public abstract void onError(ErrorEvent event);
 
-    // ====================== 私有辅助方法 ======================
+    // ====================== 辅助方法 ======================
 
     protected void saveEvtCallback(AgentContextHolder context) {
         AbstractHistoryPersist historyPersist = context.getTopAgent().getHistoryPersist();
