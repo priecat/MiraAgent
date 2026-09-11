@@ -12,8 +12,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import static net.itzq.mira.modules.toolfun.code.FileReadTool.BLOCKED_PATHS;
 
 /**
  * FileEditTool - 精确字符串替换工具
@@ -53,6 +58,15 @@ public class FileEditTool {
 
         try {
             Path path = Paths.get(filePath).toAbsolutePath().normalize();
+
+            // 安全检查：设备文件（含 /proc/*/fd/* 别名）
+            String pathStr = path.toString();
+            String fileName = path.getFileName().toString().toUpperCase();
+            for (String blocked : BLOCKED_PATHS) {
+                if (pathStr.contains(blocked) || fileName.equals(blocked)) {
+                    return "安全限制: 无法读取设备文件或特殊文件: " + filePath;
+                }
+            }
 
             // 验证 1: 文件存在
             if (!Files.exists(path)) {
@@ -148,6 +162,9 @@ public class FileEditTool {
 
             // 写回文件
             Files.write(path, newContent.getBytes(StandardCharsets.UTF_8));
+            // 加上执行权限 → 0755
+            Set<PosixFilePermission> perms = PosixFilePermissions.fromString("rwxr-xr-x");
+            Files.setPosixFilePermissions(path, perms);
 
             // 生成 diff 预览
             String diffPreview = generateDiffPreview(fileContent, newContent, actualOldString, newString);

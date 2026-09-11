@@ -1,6 +1,7 @@
 package net.itzq.mira.modules.toolfun.explorer;
 
 import lombok.extern.slf4j.Slf4j;
+import net.itzq.mira.core.utils.PromptLoader;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.agent.SubAgent;
 import net.itzq.mira.modules.ai.client.tool.annotation.Tool;
@@ -23,11 +24,8 @@ public class CodeExplorerTool {
     /** code-explorer 系统提示词模板路径 */
     private static final String PROMPT_PATH = "assets/prompt/code-explorer.md";
 
-    /** 子代理最大循环次数 */
-    private static final int SUB_AGENT_MAX_DEPTH = 15;
-
     @Tool(name = ToolFun.TOOL_CODE_EXPLORER,
-          display = "探索结构",
+          display = "探索工作空间",
           subAgent = true,
           description = "启动代码探索子代理，在代码库中进行广泛的搜索和探索。\n\n"
                   + "当任务需要广泛的代码库探索而非读取几个特定文件时使用此工具。\n"
@@ -49,8 +47,10 @@ public class CodeExplorerTool {
         try {
             log.info("启动 code-explorer 子代理，任务: {}", query.length() > 100 ? query.substring(0, 100) + "..." : query);
 
+            String prompt = PromptLoader.prompt(PROMPT_PATH);
+
             // 创建子代理
-            SubAgent explorer = new SubAgent(contextHolder, "code-explorer", PROMPT_PATH, null);
+            SubAgent explorer = new SubAgent(contextHolder, "code-explorer", prompt);
 
             // 添加explorer工具到子代理上下文
             explorer.addSubTools(
@@ -60,9 +60,6 @@ public class CodeExplorerTool {
                     ToolFun.TOOL_Grep
             );
 
-            // 设置最大循环次数
-            explorer.withMaxDepth(SUB_AGENT_MAX_DEPTH);
-
             // 执行探索任务
             String result = explorer.execute(query);
 
@@ -71,7 +68,7 @@ public class CodeExplorerTool {
 
         } catch (Exception e) {
             log.error("code-explorer 子代理执行失败", e);
-            return "代码探索失败: " + e.getMessage();
+            return "探索失败: " + e.getMessage();
         }
     }
 }

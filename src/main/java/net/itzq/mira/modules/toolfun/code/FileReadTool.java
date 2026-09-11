@@ -34,8 +34,8 @@ public class FileReadTool {
     private static final int MAX_OUTPUT_SIZE_BYTES = 256 * 1024; // 256KB
 
     /** 封锁的设备文件路径 */
-    private static final Set<String> BLOCKED_PATHS = new HashSet<>(Arrays.asList(
-            "/dev/zero", "/dev/random", "/dev/urandom", "/dev/full",
+    public static final Set<String> BLOCKED_PATHS = new HashSet<>(Arrays.asList(
+            "/dev/zero", "/dev/random", "/dev/urandom", "/dev/full","/app",
             "/dev/stdin", "/dev/tty", "/dev/console",
             "/dev/stdout", "/dev/stderr",
             "/dev/fd/0", "/dev/fd/1", "/dev/fd/2",
@@ -182,11 +182,15 @@ public class FileReadTool {
         return String.format(
                 "图片文件: %s\n格式: %s\n大小: %s\n提示: 当前环境不支持图片内容渲染，仅返回元数据。",
                 path.toAbsolutePath(),
-                com.google.common.io.Files.getFileExtension(path.getFileName().toString()).toUpperCase(),
+                getFileExtension(path.getFileName().toString()).toUpperCase(),
                 sizeStr
         );
     }
 
+    private String getFileExtension(String fileName) {
+        int lastDot = fileName.lastIndexOf('.');
+        return lastDot > 0 ? fileName.substring(lastDot + 1) : "";
+    }
     /**
      * Check if a path is a blocked device file, including /proc/*\/fd/* aliases.
      */

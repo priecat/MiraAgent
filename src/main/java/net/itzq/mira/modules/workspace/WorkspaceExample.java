@@ -1,11 +1,12 @@
 package net.itzq.mira.modules.workspace;
 
-import net.itzq.mira.modules.workspace.model.Document;
-import net.itzq.mira.modules.workspace.model.KBInfo;
-import net.itzq.mira.modules.workspace.model.SearchResult;
+import net.itzq.mira.modules.vfs.model.Document;
+import net.itzq.mira.modules.vfs.model.KBInfo;
+import net.itzq.mira.modules.vfs.model.SearchResult;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.NoSuchFileException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -27,8 +28,9 @@ public class WorkspaceExample {
      */
     private static void demonstrateLazyInit() throws IOException {
         String freshId = "f1e2d3c4b5a69788796a5b4c3d2e1f00";
+
         System.out.println("\n========== 延迟初始化演示 ==========");
-        try (Workspace wk = Workspace.load(freshId)) {
+        try (FileWorkspace wk = FileWorkspace.load(freshId)) {
             System.out.println("[load 之后，未上传]");
             System.out.println("  isInitialized()        = " + wk.isInitialized());
             KBInfo before = wk.getInfo();
@@ -52,6 +54,60 @@ public class WorkspaceExample {
         System.out.println("===================================\n");
     }
 
+    /**
+     * 演示文件操作：复制、移动、删除、递归删除
+     */
+    private static void demonstrateFileOps(FileWorkspace vk) throws IOException {
+        System.out.println("\n========== 文件操作演示 ==========");
+
+        // 准备文件
+        vk.write("/ops/fileA.txt", "Content A");
+        vk.write("/ops/sub/fileB.txt", "Content B");
+        System.out.println("[准备] 写入 /ops/fileA.txt 和 /ops/sub/fileB.txt");
+
+        // 复制
+        vk.copy("/ops/fileA.txt", "/ops/fileA_copy.txt");
+        System.out.println("[copy] /ops/fileA.txt -> /ops/fileA_copy.txt");
+        System.out.println("  源文件存在   = " + vk.exists("/ops/fileA.txt"));
+        System.out.println("  副本存在     = " + vk.exists("/ops/fileA_copy.txt"));
+        System.out.println("  副本内容     = " + vk.readString("/ops/fileA_copy.txt"));
+
+        // 移动文件
+        vk.move("/ops/fileA.txt", "/ops/sub/fileA_moved.txt");
+        System.out.println("[move] /ops/fileA.txt -> /ops/sub/fileA_moved.txt");
+        System.out.println("  原路径存在   = " + vk.exists("/ops/fileA.txt"));
+        System.out.println("  新路径存在   = " + vk.exists("/ops/sub/fileA_moved.txt"));
+
+        // 移动目录
+        vk.move("/ops/sub", "/ops/renamed");
+        System.out.println("[move] /ops/sub -> /ops/renamed");
+        System.out.println("  /ops/sub 存在          = " + vk.exists("/ops/sub"));
+        System.out.println("  /ops/renamed 存在      = " + vk.isDirectory("/ops/renamed"));
+        System.out.println("  /ops/renamed/fileB.txt = " + vk.readString("/ops/renamed/fileB.txt"));
+
+        // 删除单个文件
+        vk.delete("/ops/fileA_copy.txt");
+        System.out.println("[delete] /ops/fileA_copy.txt");
+        System.out.println("  存在         = " + vk.exists("/ops/fileA_copy.txt"));
+
+        // 递归删除目录
+        vk.deleteRecursively("/ops/renamed");
+        System.out.println("[deleteRecursively] /ops/renamed");
+        System.out.println("  /ops/renamed 存在 = " + vk.exists("/ops/renamed"));
+
+        // 删除不存在的文件 -> 抛 NoSuchFileException
+        try {
+            vk.delete("/ops/not_exist.txt");
+        } catch (NoSuchFileException e) {
+            System.out.println("[delete 不存在] 正确抛出 NoSuchFileException: " + e.getFile());
+        }
+
+        // deleteIfExists 不存在时返回 false
+        boolean deleted = vk.deleteIfExists("/ops/not_exist.txt");
+        System.out.println("[deleteIfExists 不存在] 返回 = " + deleted);
+
+        System.out.println("================================\n");
+    }
 
     public static void main(String[] args) {
         System.out.println("========================================");
@@ -62,14 +118,14 @@ public class WorkspaceExample {
             // 1. 初始化
             WorkspaceConfig config = new WorkspaceConfig();
             config.setDataDir("./data/workspace-example");
-            config.setMapDir("/workspace");   // 配置映射根目录（可选，不配置时映射路径==虚拟路径）
-            Workspace.init(config);
+            config.setMapDir("/workspace");   // 配置映射根目录（可选，不配置时映射路径==真实路径）
+            FileWorkspace.init(config);
             System.out.println("初始化完成，数据目录: " + config.getDataDir());
 
             // ===== 延迟初始化演示（使用一个全新 session，确保磁盘无残留）=====
             demonstrateLazyInit();
 
-            try (Workspace vk = Workspace.load(sessionId)) {
+            try (FileWorkspace vk = FileWorkspace.load(sessionId)) {
 
                 // ===== 三路径概念：虚拟 / 真实 / 映射 =====
                 System.out.println("\n[三路径根目录]");
@@ -84,6 +140,17 @@ public class WorkspaceExample {
                 System.out.println("  虚拟路径 getFilePath()  = /data/hello.txt");
                 System.out.println("  真实路径 toRealPath()   = " + vk.toRealPath("/data/hello.txt"));
                 System.out.println("  映射路径 toMappedPath() = " + vk.toMappedPath("/data/hello.txt"));
+                System.out.println("  size()       = " + vk.size("/data/hello.txt") + " bytes");
+                System.out.println("  exists()     = " + vk.exists("/data/hello.txt"));
+                System.out.println("  isRegularFile= " + vk.isRegularFile("/data/hello.txt"));
+                System.out.println("  isDirectory()= " + vk.isDirectory("/data/hello.txt"));
+
+                // 读取不存在的文件 -> 抛 NoSuchFileException
+                try {
+                    vk.readString("/data/not_exist.txt");
+                } catch (NoSuchFileException e) {
+                    System.out.println("[读取不存在] 正确抛出 NoSuchFileException: " + e.getFile());
+                }
 
                 // 3. 添加带分段文档
                 byte[] pdfBytes = "%PDF-1.4 模拟PDF内容".getBytes(StandardCharsets.UTF_8);
@@ -104,6 +171,11 @@ public class WorkspaceExample {
                 System.out.println("[list /docs]");
                 vk.list("/docs").forEach(name -> System.out.println("  " + name));
 
+                // 5b. 创建目录
+                vk.createDirectories("/empty/dir/nested");
+                System.out.println("\n[createDirectories] /empty/dir/nested");
+                System.out.println("  isDirectory(/empty/dir/nested) = " + vk.isDirectory("/empty/dir/nested"));
+
                 // 6. 搜索
                 System.out.println("\n[search 销售报告]");
                 List<SearchResult> results = vk.search("销售报告", 10);
@@ -123,6 +195,9 @@ public class WorkspaceExample {
                             + " 映射=" + r.getMappedPath());
                 }
 
+                // 7b. 文件操作演示
+                demonstrateFileOps(vk);
+
                 // 8. 统计
                 KBInfo info = vk.getInfo();
                 System.out.println("\n[统计] 文档数=" + info.getTotalDocuments()
@@ -130,7 +205,7 @@ public class WorkspaceExample {
 
                 // 9. 列出所有文档（含三种路径）
                 System.out.println("\n[所有文档]");
-                for (Document doc : vk.getKB().listDocuments()) {
+                for (Document doc : vk.listDocuments()) {
                     System.out.println("  - 虚拟=" + doc.getFilePath()
                             + " 真实=" + doc.getRealPath()
                             + " 映射=" + doc.getMappedPath()
@@ -139,12 +214,15 @@ public class WorkspaceExample {
 
                 // 10. 目录对象的三路径
                 System.out.println("\n[/docs 目录对象]");
-                net.itzq.mira.modules.workspace.model.Directory docsDir = vk.getDirectory("/docs");
+                net.itzq.mira.modules.vfs.model.Directory docsDir = vk.getDirectory("/docs");
                 if (docsDir != null) {
                     System.out.println("  虚拟=" + docsDir.getDirPath()
                             + " 真实=" + docsDir.getRealPath()
                             + " 映射=" + docsDir.getMappedPath());
                 }
+
+                // 11. 最终目录树
+                System.out.println("\n[最终目录树]\n" + vk.listTree());
             }
 
             System.out.println("\n========================================");

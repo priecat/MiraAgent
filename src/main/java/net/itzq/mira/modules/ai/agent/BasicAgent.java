@@ -42,17 +42,19 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 @Slf4j
 @Data
-public class BasicAgent {
+public class BasicAgent implements IBasicAgent {
 
     private int maxDepth = 999; // 最大循环次数
 
     private AgentContextHolder contextHolder;
     private String name;
     private String agentName;
+    private String agentSrcId;
     private String agentId;
     private String historyId;
+    private boolean mainAgent = false;
 
-    private int timeout = 60 * 10 * 10; // s
+    private int timeout = 3600; // s
 
     private boolean streamChat = false;
 
@@ -61,15 +63,20 @@ public class BasicAgent {
     private final Queue<ChatMessage> appendChatMessageHistoryQueue = new ConcurrentLinkedQueue<>();
 
     public BasicAgent(AgentContextHolder contextHolder) {
-        this(contextHolder, IdGen.uuidShort());
+        this(contextHolder, IdGen.uuidShort(), false);
     }
 
     public BasicAgent(AgentContextHolder contextHolder, String name) {
+        this(contextHolder, name, false);
+    }
+
+    public BasicAgent(AgentContextHolder contextHolder, String name, boolean main) {
 
         if (contextHolder == null) {
             contextHolder = AgentContextHolder.builder().build();
         }
 
+        mainAgent = false;
         streamChat = false;
         String uuidShort = IdGen.uuidShort();
 
@@ -86,13 +93,27 @@ public class BasicAgent {
             this.name = uuidShort;
         }
 
+        this.agentSrcId = uuidShort;
         this.agentId = uuidShort;
         this.agentName = this.name;
 
         if (contextHolder.getTopAgent() == null) {
             contextHolder.setTopAgent(this);
         }
+
+        setMainAgent(main);
     }
+
+    public synchronized BasicAgent setMainAgent(boolean main) {
+        this.mainAgent = main;
+        if (main) {
+            this.agentId = "main-" + this.agentSrcId;
+        } else {
+            this.agentId = this.agentSrcId;
+        }
+        return this;
+    }
+
 
     // ==================== 同步入口（循环实现）====================
     public String chat(String question) {
@@ -205,7 +226,7 @@ public class BasicAgent {
             response = chatService.getResult(apiRequestParams, null, null);
         } catch (Exception e) {
             log.error("AI 调用失败", e);
-            throw new RuntimeException("AI 服务异常", e);
+            throw new RuntimeException(e);
         }
 
         JSONObject json = JSON.parseObject(response);
@@ -292,7 +313,7 @@ public class BasicAgent {
 
                 String result;
                 if (!caneUse) {
-                    result = "无调用工具权限：" + functionName;
+                    result = "工具不存在：" + functionName;
                 } else {
                     result = FCUtil.invoke(functionName, arguments, contextHolder);
                 }

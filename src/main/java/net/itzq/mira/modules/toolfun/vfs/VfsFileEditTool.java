@@ -13,8 +13,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static net.itzq.mira.modules.vfs.VFSConstants.*;
-
 /**
  * FileEditTool - 精确字符串替换工具（基于内存 Var_VFS）
  *
@@ -32,6 +30,7 @@ public class VfsFileEditTool {
     private static final long MAX_FILE_SIZE = 1024 * 1024 * 1024; // 1 GiB
 
     @Tool(name = ToolFun.Tool_VFS_File_Edit,
+          display = "编辑文件",
           description = "在文件中执行精确字符串替换。\n\n" + "使用说明：\n" + "- 编辑前必须先用 " + ToolFun.Tool_VFS_File_Read + " " + "工具读取文件。—— "
                   + "如果未先读取就编辑，工具将报错\n" + "- 编辑 " + ToolFun.Tool_VFS_File_Read + " 工具输出中的文本时，必须保留精确的缩进（制表符/空格）\n" + "- "
                   + ToolFun.Tool_VFS_File_Read + " 工具输出的行号前缀格式为：行号 + 竖线。不要将此前缀包含在 old_string 或 new_string 中\n" + "- 优先使用 "
@@ -46,13 +45,11 @@ public class VfsFileEditTool {
             @ToolParam(description = "是否替换所有匹配项，默认 false", required = false) Boolean replaceAll,
             AgentContextHolder contextHolder) {
 
-        try {
-            // 获取 Var_VFS 实例
-            Object vfsObj = contextHolder.getTopTempVariables().get(Var_VFS);
-            if (!(vfsObj instanceof VFS)) {
-                return "编辑失败: 虚拟文件系统未初始化";
-            }
-            VFS vfs = (VFS) vfsObj;
+        if (StringUtils.isBlank(contextHolder.getVfsId())){
+            return "编辑失败: 虚拟文件系统未初始化";
+        }
+
+        try (VFS vfs = VFS.load(contextHolder.getVfsId())) {
             // 验证 1: 文件存在
             if (!vfs.exists(filePath)) {
                 return String.format("编辑失败: 文件不存在 —— %s", filePath);

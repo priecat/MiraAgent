@@ -3,11 +3,14 @@ package net.itzq.mira.modules.ai.agent;
 import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.core.utils.PropsMap;
 import net.itzq.mira.core.utils.PromptLoader;
+import net.itzq.mira.modules.ai.client.openai.chat.entity.ChatMessage;
 import net.itzq.mira.modules.ai.client.tool.FCUtil;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /**
  * SubAgent - 子代理基类
@@ -26,7 +29,7 @@ import java.util.List;
 public class SubAgent extends BasicAgent {
 
     /** 子代理系统提示词模板路径 */
-    private String promptTemplatePath;
+    private String systemPrompt;
 
     /** 子代理的独立上下文 */
     private AgentContextHolder subContext;
@@ -36,13 +39,13 @@ public class SubAgent extends BasicAgent {
      *
      * @param parentContext  父代理上下文（用于继承workspaceId、modelAlias等）
      * @param name           子代理名称
-     * @param promptTemplatePath  系统提示词模板路径（classpath或文件系统）
-     * @param params         模板参数（freemarker）
      */
     public SubAgent(AgentContextHolder parentContext, String name,
-                    String promptTemplatePath, PropsMap params) {
+                    String systemPrompt) {
+
         super(buildSubContext(parentContext), name);
-        this.promptTemplatePath = promptTemplatePath;
+
+        this.systemPrompt = systemPrompt;
         this.subContext = getContextHolder();
 
         // 设置父代理引用
@@ -53,9 +56,9 @@ public class SubAgent extends BasicAgent {
         }
 
         // 加载系统提示词
-        loadPrompt(parentContext, params);
+        subContext.setPrompt(this.systemPrompt);
 
-        log.info("SubAgent【{}】已创建，提示词: {}", name, promptTemplatePath);
+        log.info("SubAgent【{}】已创建", name);
     }
 
     /**
@@ -65,10 +68,11 @@ public class SubAgent extends BasicAgent {
         AgentContextHolder.AgentContextHolderBuilder builder = AgentContextHolder.builder();
 
         if (parentContext != null) {
+            builder.topAgent(parentContext.getTopAgent());
             // 继承模型配置
             builder.modelAlias(parentContext.getModelAlias());
             // 继承workspaceId
-            builder.workspaceId(parentContext.getWorkspaceId());
+            builder.workspaceId(parentContext.getTopWorkspaceId());
             // 继承事件中心（用于事件传递）
             builder.eventCenter(parentContext.getEventCenter());
             builder.eventHook(parentContext.getEventHook());
@@ -78,32 +82,11 @@ public class SubAgent extends BasicAgent {
             builder.history(new ArrayList<>());
             // 独立的工具列表
             builder.tools(new ArrayList<>());
+            // 继承 VFS
+            builder.vfsId(parentContext.getTopVfsId());
         }
 
         return builder.build();
-    }
-
-    /**
-     * 加载系统提示词
-     */
-    private void loadPrompt(AgentContextHolder parentContext, PropsMap params) {
-        if (StringUtils.isBlank(promptTemplatePath)) {
-            return;
-        }
-
-        String prompt;
-        if (params != null && !params.isEmpty()) {
-            prompt = PromptLoader.prompt(promptTemplatePath, params);
-        } else {
-            prompt = PromptLoader.prompt(promptTemplatePath);
-        }
-
-        if (StringUtils.isNotBlank(prompt)) {
-            subContext.setPrompt(prompt);
-            log.info("SubAgent【{}】已加载提示词模板: {}", getName(), promptTemplatePath);
-        } else {
-            log.warn("SubAgent【{}】提示词模板为空: {}", getName(), promptTemplatePath);
-        }
     }
 
     /**
@@ -147,9 +130,27 @@ public class SubAgent extends BasicAgent {
     public String execute(String query) {
         log.info("SubAgent【{}】开始执行任务: {}", getName(), query.length() > 100 ? query.substring(0, 100) + "..." : query);
         long start = System.currentTimeMillis();
-        String result = chat(query);
+        CountDownLatch countDownLatch = chatStream(query);
         long cost = System.currentTimeMillis() - start;
+
+        try {
+            countDownLatch.await(this.getTimeout(), TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            return "执行失败：执行超时";
+        }
         log.info("SubAgent【{}】任务完成，耗时: {}ms", getName(), cost);
-        return result;
+
+        List<ChatMessage> history = getContextHolder().getHistory();
+        if (history.size() == 0) {
+            return "执行失败：无消息返回";
+        }
+        ChatMessage lastMessage = history.get(history.size() - 1);
+        if (lastMessage != null && lastMessage.getContent() != null) {
+            if ("assistant".equals(lastMessage.getRole())) {
+                return lastMessage.getContent().getText();
+            }
+        }
+
+        return "执行失败：未成功获取执行结果";
     }
 }

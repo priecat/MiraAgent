@@ -3,6 +3,7 @@ package net.itzq.mira.modules.ai.client.config;
 import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.modules.ai.client.handle.OpenAICompatibleChatService;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -16,7 +17,7 @@ public class ApiProviderManage {
 
     private static volatile ApiProviderManage instance;
 
-    private final Map<String, OpenAICompatibleChatService> providers = new ConcurrentHashMap<>();
+    private Map<String, OpenAICompatibleChatService> providers = new ConcurrentHashMap<>();
 
     private static String defaultModel = "";
 
@@ -36,7 +37,7 @@ public class ApiProviderManage {
     }
 
     // 注册模型
-    public void registerModel(ModelRegistrationConfig config) {
+    public void registerModel(ModelApiConfig config) {
         providers.put(config.getAlias(), new OpenAICompatibleChatService(config));
     }
 
@@ -68,4 +69,24 @@ public class ApiProviderManage {
     public static String getDefaultModel() {
         return defaultModel;
     }
+
+    public static void reset(List<ModelApiConfig> models) {
+
+        Map<String, OpenAICompatibleChatService> newConfig = new ConcurrentHashMap<>();
+
+        if (models != null) {
+            for (ModelApiConfig mc : models) {
+                if (mc == null || mc.getAlias() == null || mc.getAlias().isEmpty()) {
+                    log.warn("跳过无效模型配置（alias 为空）");
+                    continue;
+                }
+                newConfig.put(mc.getAlias(), new OpenAICompatibleChatService(mc));
+                log.info("注册对话模型: {}", mc.getAlias());
+            }
+        }
+
+        getInstance().providers = newConfig;
+    }
+
+
 }

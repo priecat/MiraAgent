@@ -1,52 +1,75 @@
 package net.itzq.mira.modules.ai.client.sse;
 
+import cn.hutool.http.HttpRequest;
+import cn.hutool.http.HttpResponse;
 import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.modules.ai.client.handle.HttpStreamEventInterface;
-import org.asynchttpclient.*;
-import org.asynchttpclient.handler.TransferCompletionHandler;
+import net.itzq.mira.modules.config.GlobalConfigManager;
+import net.itzq.mira.modules.config.SseClientConfig;
 
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 /**
- *  HttpSSEClient
+ * HttpSSEClient -   SSE 客户端
  *
- *  @author tangzq
+ * @author tangzq
  */
 @Slf4j
 public class HttpSSEClient {
 
     private static volatile HttpSSEClient instance;
-
-    private volatile AsyncHttpClient asyncHttpClient;
-
     private static final Object LOCK = new Object();
 
-    /**
-     * 私有构造方法
-     */
+    /** 异步 SSE 请求线程池 */
+    private volatile ExecutorService executorService;
+    /** 连接超时（毫秒） */
+    private volatile int connectTimeoutMs;
+    /** 读取超时（毫秒） */
+    private volatile int readTimeoutMs;
+
+    // ==================== 构造与初始化 ====================
+
     private HttpSSEClient() {
-        this.asyncHttpClient = createDefaultClient();
+        init();
     }
-    private static AsyncHttpClient createDefaultClient() {
-        return Dsl.asyncHttpClient(Dsl.config()
-                // 客户端尝试与服务器建立 TCP 连接的最大等待时间。
-                .setConnectTimeout(15 * 1000)  // 15 秒
-                // 在连接建立成功后，等待服务器返回数据的最大空闲时间。如果两次数据包之间的间隔超过 15 分钟，连接会被关闭。
-                // 对 SSE 这类长连接而言，这个值过短会导致连接意外断开。尤其是同步工具调用
-                .setReadTimeout(15 * 60 * 1000) // 15 分钟
-                // 从发起请求到接收完整响应的总时长上限，包含连接、发送请求、等待响应的全部时间。
-                // 超过 15 分钟未完成整个请求，会超时失败。
-                .setRequestTimeout(15 * 60 * 1000)       // 15 分钟
-                // 该客户端实例可以同时打开的最大连接数（所有目标主机合计）。超过后，新请求会排队等待
-                .setMaxConnections(100)
-                // 连接在池中保持空闲状态（没有请求使用）的最长时间。超过 60 秒未被复用，连接会被关闭并从池中移除。
-                .setPooledConnectionIdleTimeout(60 * 1000)   // 60 秒
-                .setKeepAlive(false) // SSE场景不建议keepalive
-                .build());
+
+    private void init() {
+        SseClientConfig cfg = GlobalConfigManager.config().getSseClientSimpleConfig();
+        if (cfg == null) {
+            cfg = new SseClientConfig();
+        }
+        this.connectTimeoutMs = cfg.getConnectTimeoutMs();
+        this.readTimeoutMs = cfg.getReadTimeoutMs();
+
+        // 关闭旧线程池
+        if (this.executorService != null && !this.executorService.isShutdown()) {
+            this.executorService.shutdown();
+        }
+
+        // 创建新线程池
+        AtomicInteger counter = new AtomicInteger(0);
+        this.executorService = new ThreadPoolExecutor(4,
+                128,
+                60L,
+                TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(256),
+                r -> {
+                    Thread t = new Thread(r, "hutool-sse-worker-" + counter.incrementAndGet());
+                    t.setDaemon(true);
+                    return t;
+                },
+                new ThreadPoolExecutor.CallerRunsPolicy());
     }
 
     /**
@@ -64,41 +87,19 @@ public class HttpSSEClient {
     }
 
     /**
-     * 重新设置 AsyncHttpClient（外部自定义配置）
-     * 会关闭旧的 client，请确保没有进行中的请求
-     */
-    public void setAsyncHttpClient(AsyncHttpClient newClient) {
-        if (newClient == null) {
-            throw new IllegalArgumentException("AsyncHttpClient 不能为 null");
-        }
-        AsyncHttpClient old = this.asyncHttpClient;
-        this.asyncHttpClient = newClient;
-        if (old != null && old != newClient) {
-            try {
-                old.close();
-            } catch (Exception e) {
-                log.warn("关闭旧 AsyncHttpClient 失败: {}", e.getMessage());
-            }
-        }
-    }
-
-    public AsyncHttpClient getAsyncHttpClient() {
-        return asyncHttpClient;
-    }
-
-    /**
-     * 重置为默认配置的 client
+     * 重置为默认配置（重新读取配置并重建线程池）
      */
     public void resetToDefault() {
-        setAsyncHttpClient(createDefaultClient());
+        synchronized (LOCK) {
+            init();
+        }
     }
 
-    /**
-     * ==================== 同步请求方法 ====================
-     */
+    // ==================== 同步请求方法 ====================
 
     /**
      * 同步GET请求
+     *
      * @param url 请求URL
      * @return 响应字符串
      */
@@ -108,17 +109,20 @@ public class HttpSSEClient {
 
     /**
      * 同步GET请求（带请求头）
-     * @param url 请求URL
+     *
+     * @param url     请求URL
      * @param headers 请求头
      * @return 响应字符串
      */
     public String getSync(String url, Map<String, String> headers) {
         try {
-            BoundRequestBuilder requestBuilder = asyncHttpClient.prepareGet(url);
-            addHeaders(requestBuilder, headers);
-
-            Response response = requestBuilder.execute().get();
-            return handleResponse(response);
+            HttpRequest request = HttpRequest.get(url)
+                    .setConnectionTimeout(connectTimeoutMs)
+                    .setReadTimeout(readTimeoutMs);
+            addHeaders(request, headers);
+            try (HttpResponse response = request.execute()) {
+                return handleResponse(response);
+            }
         } catch (Exception e) {
             log.error("同步GET请求失败: {}", e.getMessage(), e);
             throw new RuntimeException("HTTP请求失败", e);
@@ -127,7 +131,8 @@ public class HttpSSEClient {
 
     /**
      * 同步GET请求（带超时）
-     * @param url 请求URL
+     *
+     * @param url     请求URL
      * @param timeout 超时时间（毫秒）
      * @return 响应字符串
      */
@@ -140,11 +145,13 @@ public class HttpSSEClient {
      */
     public String getSync(String url, Map<String, String> headers, long timeout) {
         try {
-            BoundRequestBuilder requestBuilder = asyncHttpClient.prepareGet(url);
-            addHeaders(requestBuilder, headers);
-
-            Response response = requestBuilder.execute().get(timeout, TimeUnit.MILLISECONDS);
-            return handleResponse(response);
+            HttpRequest request = HttpRequest.get(url)
+                    .setConnectionTimeout((int) timeout)
+                    .setReadTimeout((int) timeout);
+            addHeaders(request, headers);
+            try (HttpResponse response = request.execute()) {
+                return handleResponse(response);
+            }
         } catch (Exception e) {
             log.error("同步GET请求失败: {}", e.getMessage(), e);
             throw new RuntimeException("HTTP请求失败", e);
@@ -153,7 +160,8 @@ public class HttpSSEClient {
 
     /**
      * 同步POST请求（JSON格式）
-     * @param url 请求URL
+     *
+     * @param url      请求URL
      * @param jsonBody JSON请求体
      * @return 响应字符串
      */
@@ -166,23 +174,25 @@ public class HttpSSEClient {
      */
     public String postJsonSync(String url, String jsonBody, Map<String, String> headers) {
         try {
-            BoundRequestBuilder requestBuilder = asyncHttpClient.preparePost(url)
-                    .setHeader("Content-Type", "application/json")
-                    .setBody(jsonBody.getBytes(StandardCharsets.UTF_8));
-
-            addHeaders(requestBuilder, headers);
-
-            Response response = requestBuilder.execute().get();
-            return handleResponse(response);
+            HttpRequest request = HttpRequest.post(url)
+                    .setConnectionTimeout(connectTimeoutMs)
+                    .setReadTimeout(readTimeoutMs)
+                    .header("Content-Type", "application/json")
+                    .body(jsonBody);
+            addHeaders(request, headers);
+            try (HttpResponse response = request.execute()) {
+                return handleResponse(response);
+            }
         } catch (Exception e) {
             log.error("同步POST请求失败: {}", e.getMessage(), e);
-            throw new RuntimeException("HTTP请求失败", e);
+            throw new RuntimeException("同步POST请求失败:" + e.getMessage(), e);
         }
     }
 
     /**
      * 同步POST请求（表单格式）
-     * @param url 请求URL
+     *
+     * @param url        请求URL
      * @param formParams 表单参数
      * @return 响应字符串
      */
@@ -195,314 +205,124 @@ public class HttpSSEClient {
      */
     public String postFormSync(String url, Map<String, String> formParams, Map<String, String> headers) {
         try {
-            BoundRequestBuilder requestBuilder = asyncHttpClient.preparePost(url)
-                    .setHeader("Content-Type", "application/x-www-form-urlencoded");
-
-            // 添加表单参数
-            StringBuilder formBody = new StringBuilder();
-            if (formParams != null) {
-                formParams.forEach((key, value) -> {
-                    if (formBody.length() > 0) {
-                        formBody.append("&");
-                    }
-                    formBody.append(key).append("=").append(value);
-                });
+            HttpRequest request = HttpRequest.post(url)
+                    .setConnectionTimeout(connectTimeoutMs)
+                    .setReadTimeout(readTimeoutMs)
+                    .header("Content-Type", "application/x-www-form-urlencoded");
+            if (formParams != null && !formParams.isEmpty()) {
+                formParams.forEach(request::form);
             }
-            requestBuilder.setBody(formBody.toString());
-
-            addHeaders(requestBuilder, headers);
-
-            Response response = requestBuilder.execute().get();
-            return handleResponse(response);
+            addHeaders(request, headers);
+            try (HttpResponse response = request.execute()) {
+                return handleResponse(response);
+            }
         } catch (Exception e) {
             log.error("同步POST表单请求失败: {}", e.getMessage(), e);
             throw new RuntimeException("HTTP请求失败", e);
         }
     }
 
-    /**
-     * ==================== 辅助方法 ====================
-     */
+    // ==================== 辅助方法 ====================
 
     /**
      * 添加请求头
      */
-    private void addHeaders(BoundRequestBuilder requestBuilder, Map<String, String> headers) {
+    private void addHeaders(HttpRequest request, Map<String, String> headers) {
         if (headers != null && !headers.isEmpty()) {
-            headers.forEach(requestBuilder::setHeader);
+            headers.forEach(request::header);
         }
     }
 
     /**
      * 处理响应
      */
-    private String handleResponse(Response response) {
-        if (response.getStatusCode() >= 200 && response.getStatusCode() < 300) {
-        } else {
-            String responseBody = response.getResponseBody(StandardCharsets.UTF_8);
-            log.error("HTTP请求返回错误状态码: {}", response.getStatusCode());
-            log.error("错误响应内容: {}", responseBody);
+    private String handleResponse(HttpResponse response) {
+        int status = response.getStatus();
+        String body = response.body();
+        if (status < 200 || status >= 300) {
+            log.error("HTTP请求返回错误状态码: {}", status);
+            log.error("错误响应内容: {}", body);
         }
-        return response.getResponseBody(StandardCharsets.UTF_8);
+        return body;
     }
 
-    /**
-     * 获取原生AsyncHttpClient实例
-     */
-    public AsyncHttpClient getClient() {
-        return asyncHttpClient;
-    }
-
-    /**
-     * SSE响应解析器
-     */
-    private static class SseResponseHandler extends TransferCompletionHandler {
-        private final HttpStreamEventInterface eventHandler;
-        private final StringBuilder buffer = new StringBuilder();
-        private String currentEventType = "message";
-        private String currentId = "";
-
-        // ----- 新增字段 -----
-        private boolean statusError = false;                // 标记非 2xx 状态
-        private final StringBuilder errorBody = new StringBuilder();  // 收集错误响应体
-        // ------------------
-
-        public SseResponseHandler(HttpStreamEventInterface eventHandler) {
-            this.eventHandler = eventHandler;
-        }
-
-        @Override
-        public State onStatusReceived(HttpResponseStatus status) throws Exception {
-            int statusCode = status.getStatusCode();
-            String statusText = status.getStatusText();
-            String uri = status.getUri().toString();
-            log.info("SSE请求响应状态 - URL: {}, 状态码: {}, 状态描述: {}", uri, statusCode, statusText);
-
-            if (statusCode < 200 || statusCode >= 300) {
-                statusError = true;   // 标记为错误状态，后续不再走 SSE 解析
-                log.warn("SSE请求返回非成功状态码 - URL: {}, 状态码: {}, 开始收集错误响应体", uri, statusCode);
-            }
-
-            return super.onStatusReceived(status);   // 不再抛异常，让数据继续到达
-        }
-
-        @Override
-        public State onBodyPartReceived(HttpResponseBodyPart content) throws Exception {
-            String chunk = new String(content.getBodyPartBytes(), StandardCharsets.UTF_8);
-
-            if (statusError) {
-                // 错误场景：只累积，不做 SSE 解析
-                errorBody.append(chunk);
-            } else {
-                // 正常场景：原逻辑不变
-                buffer.append(chunk);
-                processBuffer();
-            }
-
-            return super.onBodyPartReceived(content);
-        }
-
-        private void processBuffer() {
-            // 只在 !statusError 时调用，逻辑保持不变
-            String content = buffer.toString();
-            int index;
-            while ((index = content.indexOf("\n")) != -1) {
-                String line = content.substring(0, index);
-                content = content.substring(index + 1);
-
-                if (line.isEmpty()) {
-                    resetEvent();
-                } else if (line.startsWith(":")) {
-                    eventHandler.onComment(line.substring(1).trim());
-                } else if (line.startsWith("event:")) {
-                    currentEventType = line.substring(6).trim();
-                } else if (line.startsWith("data:")) {
-                    String data = line.substring(5).trim();
-                    eventHandler.onEvent(currentEventType, data, currentId);
-                } else if (line.startsWith("id:")) {
-                    currentId = line.substring(3).trim();
-                }
-                // retry: 可以忽略
-            }
-            buffer.setLength(0);
-            buffer.append(content);
-        }
-
-        private void resetEvent() {
-            currentEventType = "message";
-            currentId = "";
-        }
-
-        @Override
-        public Response onCompleted(Response response) throws Exception {
-            if (statusError) {
-                // 打印完整错误响应体并抛出异常，触发 onThrowable -> eventHandler.onError
-                String body = errorBody.toString();
-                log.error("SSE请求最终失败，URL: {}, 状态码: {}, 响应内容: {}",
-                        response.getUri(), response.getStatusCode(), body);
-                throw new RuntimeException(
-                        String.format("SSE请求失败，状态码: %s, 响应体: %s", response.getStatusCode(), body));
-            }
-
-            eventHandler.onComplete();
-            return super.onCompleted(response);
-        }
-
-        @Override
-        public void onThrowable(Throwable t) {
-            eventHandler.onError(t);
-        }
-    }
+    // ==================== SSE 请求方法 ====================
 
     /**
      * 发送SSE请求（同步方式）
-     * @param url 请求URL
+     *
+     * @param url          请求URL
      * @param eventHandler SSE事件处理器
      */
     public void getSseSync(String url, HttpStreamEventInterface eventHandler) {
-        try {
-            SseResponseHandler handler = new SseResponseHandler(eventHandler);
-            ListenableFuture<Response> future = asyncHttpClient.prepareGet(url)
-                    .setHeader("Accept", "text/event-stream")
-                    .setHeader("Cache-Control", "no-cache")
-                    .execute(handler);
-
-            future.get(); // 等待完成
-
-        } catch (Exception e) {
-            log.error("SSE请求失败: {}", e.getMessage(), e);
-            eventHandler.onError(e);
-        }
+        executeSseGet(url, null, eventHandler);
     }
 
     /**
      * 发送SSE请求（异步方式）
-     * @param url 请求URL
+     *
+     * @param url          请求URL
      * @param eventHandler SSE事件处理器
      * @return CompletableFuture<Void>
      */
     public CompletableFuture<Void> getSseAsync(String url, HttpStreamEventInterface eventHandler) {
         CompletableFuture<Void> future = new CompletableFuture<>();
-
+        HttpStreamEventInterface wrapped = wrapHandler(eventHandler, future);
         try {
-            SseResponseHandler handler = new SseResponseHandler(new HttpStreamEventInterface() {
-                @Override
-                public void onEvent(String eventType, String data, String id) {
-                    try {
-                        eventHandler.onEvent(eventType, data, id);
-                    } catch (Exception e) {
-                        log.error("处理SSE事件时出错: {}", e.getMessage(), e);
-                    }
-                }
-
-                @Override
-                public void onComment(String comment) {
-                    eventHandler.onComment(comment);
-                }
-
-                @Override
-                public void onComplete() {
-                    try {
-                        eventHandler.onComplete();
-                        future.complete(null);
-                    } catch (Exception e) {
-                        future.completeExceptionally(e);
-                    }
-                }
-
-                @Override
-                public void onError(Throwable t) {
-                    try {
-                        eventHandler.onError(t);
-                    } catch (Exception e) {
-                        log.error("处理错误时出错: {}", e.getMessage(), e);
-                    }
-                    future.completeExceptionally(t);
-                }
-            });
-
-            asyncHttpClient.prepareGet(url)
-                    .setHeader("Accept", "text/event-stream")
-                    .setHeader("Cache-Control", "no-cache")
-                    .execute(handler);
-
+            executorService.submit(() -> executeSseGet(url, null, wrapped));
         } catch (Exception e) {
-            log.error("发起SSE请求失败: {}", e.getMessage(), e);
+            log.error("提交SSE请求任务失败: {}", e.getMessage(), e);
             future.completeExceptionally(e);
         }
-
         return future;
     }
 
     /**
      * 发送带自定义头的SSE请求
-     * @param url 请求URL
-     * @param headers 自定义头信息
+     *
+     * @param url          请求URL
+     * @param headers      自定义头信息
      * @param eventHandler SSE事件处理器
+     * @return CompletableFuture<Void>
      */
     public CompletableFuture<Void> getSseWithHeaders(String url, Map<String, String> headers,
             HttpStreamEventInterface eventHandler) {
         CompletableFuture<Void> future = new CompletableFuture<>();
-
+        HttpStreamEventInterface wrapped = wrapHandler(eventHandler, future);
         try {
-            SseResponseHandler handler = new SseResponseHandler(eventHandler);
-            BoundRequestBuilder requestBuilder = asyncHttpClient.prepareGet(url)
-                    .setHeader("Accept", "text/event-stream")
-                    .setHeader("Cache-Control", "no-cache");
-
-            // 添加自定义头
-            if (headers != null) {
-                headers.forEach(requestBuilder::setHeader);
-            }
-
-            requestBuilder.execute(handler);
-            future.complete(null);
-
+            executorService.submit(() -> executeSseGet(url, headers, wrapped));
         } catch (Exception e) {
-            log.error("发起SSE请求失败: {}", e.getMessage(), e);
+            log.error("提交SSE请求任务失败: {}", e.getMessage(), e);
             future.completeExceptionally(e);
         }
-
         return future;
     }
 
     /**
      * 发送POST SSE请求
-     * @param url 请求URL
-     * @param body 请求体
+     *
+     * @param url          请求URL
+     * @param body         请求体
      * @param eventHandler SSE事件处理器
+     * @return CompletableFuture<Void>
      */
     public CompletableFuture<Void> postSse(String url, String body, Map<String, String> headers,
             HttpStreamEventInterface eventHandler) {
         CompletableFuture<Void> future = new CompletableFuture<>();
-
+        HttpStreamEventInterface wrapped = wrapHandler(eventHandler, future);
         try {
-            SseResponseHandler handler = new SseResponseHandler(eventHandler);
-
-            BoundRequestBuilder requestBuilder = asyncHttpClient.preparePost(url)
-                    .setHeader("Accept", "text/event-stream")
-                    .setHeader("Cache-Control", "no-cache")
-                    .setHeader("Content-Type", "application/json");
-
-            if (headers != null) {
-                headers.forEach(requestBuilder::setHeader);
-            }
-
-            requestBuilder.setBody(body).execute(handler);
-
-            future.complete(null);
-
+            executorService.submit(() -> executeSsePost(url, body, headers, wrapped));
         } catch (Exception e) {
-            log.error("发起POST SSE请求失败: {}", e.getMessage(), e);
+            log.error("提交POST SSE请求任务失败: {}", e.getMessage(), e);
             future.completeExceptionally(e);
         }
-
         return future;
     }
 
     /**
      * 简化的SSE事件监听器（流式处理数据）
-     * @param url 请求URL
+     *
+     * @param url          请求URL
      * @param dataConsumer 数据消费者
      */
     public void listenSseData(String url, Consumer<String> dataConsumer) {
@@ -529,21 +349,182 @@ public class HttpSSEClient {
                 log.error("SSE流错误: {}", t.getMessage());
             }
         };
-
         getSseAsync(url, handler);
     }
 
+    // ==================== SSE 内部实现 ====================
+
     /**
-     * 关闭客户端
+     * 执行 SSE GET 请求
+     */
+    private void executeSseGet(String url, Map<String, String> headers, HttpStreamEventInterface eventHandler) {
+        try {
+            HttpRequest request = HttpRequest.get(url)
+                    .setConnectionTimeout(connectTimeoutMs)
+                    .setReadTimeout(readTimeoutMs)
+                    .header("Accept", "text/event-stream")
+                    .header("Cache-Control", "no-cache")
+                    .header("Accept-Encoding", "identity");
+            addHeaders(request, headers);
+            executeSse(request, eventHandler);
+        } catch (Exception e) {
+            log.error("SSE请求失败: {}", e.getMessage(), e);
+            eventHandler.onError(e);
+        }
+    }
+
+    /**
+     * 执行 SSE POST 请求
+     */
+    private void executeSsePost(String url, String body, Map<String, String> headers,
+            HttpStreamEventInterface eventHandler) {
+        try {
+            HttpRequest request = HttpRequest.post(url)
+                    .setConnectionTimeout(connectTimeoutMs)
+                    .setReadTimeout(readTimeoutMs)
+                    .header("Accept", "text/event-stream")
+                    .header("Cache-Control", "no-cache")
+                    .header("Accept-Encoding", "identity")
+                    .header("Content-Type", "application/json")
+                    .body(body);
+            addHeaders(request, headers);
+            executeSse(request, eventHandler);
+        } catch (Exception e) {
+            log.error("发起POST SSE请求失败: {}", e.getMessage(), e);
+            eventHandler.onError(e);
+        }
+    }
+
+    /**
+     * 执行SSE请求并逐行解析事件流
+     * <p>
+     * 通过 Hutool HttpResponse.bodyStream() 获取底层 InputStream，
+     * 使用 BufferedReader.readLine() 逐行读取并解析 SSE 协议字段。
+     * </p>
+     */
+    private void executeSse(HttpRequest request, HttpStreamEventInterface eventHandler) {
+        HttpResponse response = null;
+        try {
+            response = request.executeAsync();
+            int statusCode = response.getStatus();
+            String uri = request.getUrl();
+            log.info("SSE请求响应状态 - URL: {}, 状态码: {}", uri, statusCode);
+
+            if (statusCode < 200 || statusCode >= 300) {
+                // 非 2xx：读取完整错误响应体并触发 onError
+                String body = response.body();
+                log.error("SSE请求最终失败，URL: {}, 状态码: {}, 响应内容: {}", uri, statusCode, body);
+                eventHandler.onError(new RuntimeException(String.format("SSE请求失败，状态码: %s, 响应体: %s", statusCode, body)));
+                return;
+            }
+
+            // 获取响应体输入流
+            InputStream is = response.bodyStream();
+            if (is == null) {
+                eventHandler.onComplete();
+                return;
+            }
+
+            // 逐行读取 SSE 流
+            BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
+            String currentEventType = "message";
+            String currentId = "";
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.isEmpty()) {
+                    // 空行：重置事件类型和ID（SSE 协议规定空行表示一个事件的结束）
+                    currentEventType = "message";
+                    currentId = "";
+                } else if (line.startsWith(":")) {
+                    // 注释行（以冒号开头）
+                    eventHandler.onComment(line.substring(1).trim());
+                } else if (line.startsWith("event:")) {
+                    currentEventType = line.substring(6).trim();
+                } else if (line.startsWith("data:")) {
+                    String data = line.substring(5).trim();
+                    eventHandler.onEvent(currentEventType, data, currentId);
+                } else if (line.startsWith("id:")) {
+                    currentId = line.substring(3).trim();
+                }
+                // retry: 行可忽略
+            }
+            // 流正常结束
+            eventHandler.onComplete();
+        } catch (Exception e) {
+            log.error("SSE流处理异常: {}", e.getMessage(), e);
+            eventHandler.onError(e);
+        } finally {
+            if (response != null) {
+                try {
+                    response.close();
+                } catch (Exception e) {
+                    log.warn("关闭SSE响应失败: {}", e.getMessage());
+                }
+            }
+        }
+    }
+
+    /**
+     * 包装事件处理器，使 CompletableFuture 在 SSE 完成或出错时正确结束
+     */
+    private HttpStreamEventInterface wrapHandler(HttpStreamEventInterface eventHandler,
+            CompletableFuture<Void> future) {
+        return new HttpStreamEventInterface() {
+            @Override
+            public void onEvent(String eventType, String data, String id) {
+                try {
+                    eventHandler.onEvent(eventType, data, id);
+                } catch (Exception e) {
+                    log.error("处理SSE事件时出错: {}", e.getMessage(), e);
+                }
+            }
+
+            @Override
+            public void onComment(String comment) {
+                try {
+                    eventHandler.onComment(comment);
+                } catch (Exception e) {
+                    log.error("处理SSE注释时出错: {}", e.getMessage(), e);
+                }
+            }
+
+            @Override
+            public void onComplete() {
+                try {
+                    eventHandler.onComplete();
+                    future.complete(null);
+                } catch (Exception e) {
+                    future.completeExceptionally(e);
+                }
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                try {
+                    eventHandler.onError(t);
+                } catch (Exception e) {
+                    log.error("处理错误时出错: {}", e.getMessage(), e);
+                }
+                future.completeExceptionally(t);
+            }
+        };
+    }
+
+    // ==================== 客户端管理 ====================
+
+    /**
+     * 关闭客户端（释放线程池资源）
      */
     public void close() {
         try {
-            if (asyncHttpClient != null) {
-                asyncHttpClient.close();
+            if (executorService != null && !executorService.isShutdown()) {
+                executorService.shutdown();
+                if (!executorService.awaitTermination(5, TimeUnit.SECONDS)) {
+                    executorService.shutdownNow();
+                }
             }
         } catch (Exception e) {
             log.error("关闭SSE客户端失败: {}", e.getMessage(), e);
         }
     }
-
 }

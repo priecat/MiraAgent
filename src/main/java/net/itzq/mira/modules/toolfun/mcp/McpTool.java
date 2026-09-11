@@ -1,10 +1,13 @@
 package net.itzq.mira.modules.toolfun.mcp;
 
 import lombok.extern.slf4j.Slf4j;
+import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.client.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.client.tool.annotation.ToolParam;
 import net.itzq.mira.modules.ai.mcp.McpManager;
+import net.itzq.mira.modules.ai.mcp.McpPrepared;
 import net.itzq.mira.modules.toolfun.ToolFun;
+import org.apache.commons.lang3.StringUtils;
 
 /**
  * MCP工具网关，让AI通过function call调用MCP工具
@@ -23,18 +26,15 @@ public class McpTool {
     )
     public String mcpCall(
             @ToolParam(description = "完整的MCP工具名，格式: mcp__{serverName}__{toolName}，例如 mcp__filesystem__read_file") String tool_name,
-            @ToolParam(description = "工具参数，JSON格式字符串，具体参数请参考工具的inputSchema", required = false) String arguments
+            @ToolParam(description = "工具参数，JSON格式字符串，具体参数请参考工具的inputSchema", required = false) String arguments,
+            AgentContextHolder context
     ) {
-        McpManager manager = McpManager.getInstance();
-        if (!manager.isInitialized()) {
-            return "MCP系统未初始化";
-        }
-
-        if (!manager.hasTools()) {
-            return "没有可用的MCP工具";
+        McpPrepared mcpConfig = context.getMcpConfig();
+        if (mcpConfig == null || StringUtils.isBlank(mcpConfig.getConfigJson())) {
+            return "本次对话未配置MCP";
         }
 
         log.info("AI调用MCP工具: {}", tool_name);
-        return manager.callTool(tool_name, arguments);
+        return McpManager.callTool(mcpConfig.getConfigJson(), tool_name, arguments);
     }
 }

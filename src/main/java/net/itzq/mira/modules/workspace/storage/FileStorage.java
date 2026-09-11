@@ -1,8 +1,8 @@
 package net.itzq.mira.modules.workspace.storage;
 
-import net.itzq.mira.modules.workspace.model.Directory;
-import net.itzq.mira.modules.workspace.model.Document;
-import net.itzq.mira.modules.workspace.model.KBInfo;
+import net.itzq.mira.modules.vfs.model.Directory;
+import net.itzq.mira.modules.vfs.model.Document;
+import net.itzq.mira.modules.vfs.model.KBInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,9 +11,12 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -40,7 +43,7 @@ public class FileStorage {
     /** 存储根目录（对应虚拟路径 "/"） */
     private final Path storageRoot;
 
-    /** 映射根目录（mapDir，虚拟路径风格，如 /workspace）；为 null 时映射路径==虚拟路径 */
+    /** 映射根目录（mapDir，虚拟路径风格，如 /workspace）；为 null 时映射路径==真实路径 */
     private final String mapDir;
 
     /** 是否已实际在磁盘上创建存储目录（延迟初始化标记） */
@@ -48,9 +51,12 @@ public class FileStorage {
 
     public FileStorage(String storageDir, String mapDir) {
         this.storageRoot = Paths.get(storageDir).toAbsolutePath().normalize();
-        this.mapDir = (mapDir == null || mapDir.isEmpty()) ? null : normalizeVirtual(mapDir);
+        // mapDir 为 null/空时保持 null，表示映射路径==真实路径
+        this.mapDir = (mapDir == null || mapDir.isEmpty()) ?
+                null :
+                Paths.get(mapDir).toAbsolutePath().normalize().toString();
         // 延迟初始化：构造时不再创建磁盘目录，等待首次真正写入/创建目录时按需创建
-        log.info("FileStorage 已创建（延迟初始化）: storageRoot={}, mapDir={}", storageRoot, this.mapDir);
+        log.debug("FileStorage 已创建（延迟初始化）: storageRoot={}, mapDir={}", storageRoot, this.mapDir);
     }
 
     public Path getStorageRoot() {
@@ -79,6 +85,9 @@ public class FileStorage {
         }
         try {
             Files.createDirectories(storageRoot);
+            Set<PosixFilePermission> perms = PosixFilePermissions.fromString("rwxr-xr-x");
+            Files.setPosixFilePermissions(storageRoot, perms); // 所有用户可读可写可执行
+
             initialized = true;
             log.info("FileStorage 已初始化（磁盘目录已创建）: storageRoot={}", storageRoot);
         } catch (IOException e) {
@@ -87,23 +96,17 @@ public class FileStorage {
     }
 
     /**
-     * 获取映射根目录（mapDir）。未配置时返回 "/"（映射路径==虚拟路径）。
-     */
-    public String getMappedRoot() {
-        return mapDir == null ? "/" : mapDir;
-    }
-
-    /**
      * 虚拟路径 -> 映射路径（mapDir + 虚拟路径）。
      * <pre>
      *   mapDir="/workspace", 虚拟路径="/data/a.txt"  =>  "/workspace/data/a.txt"
-     *   mapDir 未配置时，映射路径等于虚拟路径（恒等映射）。
+     *   mapDir 未配置时，映射路径等于真实路径（toReal 结果）。
      * </pre>
      */
     public String toMapped(String virtualPath) {
         String vp = normalizeVirtual(virtualPath);
         if (mapDir == null) {
-            return vp;
+            // 未配置 mapDir 时，映射路径等于真实路径
+            return toReal(virtualPath).toString();
         }
         String mapped = mapDir + vp;          // 两者均带前导 /
         mapped = mapped.replaceAll("/+", "/"); // 合并重复斜杠

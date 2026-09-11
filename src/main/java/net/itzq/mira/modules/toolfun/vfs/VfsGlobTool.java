@@ -6,7 +6,6 @@ import net.itzq.mira.modules.ai.client.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.client.tool.annotation.ToolParam;
 import net.itzq.mira.modules.toolfun.ToolFun;
 import net.itzq.mira.modules.vfs.VFS;
-import net.itzq.mira.modules.vfs.VFSConstants;
 import org.apache.commons.lang3.StringUtils;
 
 import java.nio.file.*;
@@ -35,6 +34,7 @@ public class VfsGlobTool {
             java.util.regex.Pattern.compile("^[a-zA-Z]:[/\\\\]");
 
     @Tool(name = ToolFun.Tool_VFS_Glob,
+          display = "查找文件",
           description = "内存文件系统文件模式匹配工具，通过 glob 模式查找文件名。\n"
                   + "【重要】pattern 只能写相对路径的模式，例如 \"**/*.java\"、\"src/**/*.xml\"。\n"
                   + "请不要在 pattern 内写盘符或绝对路径（如 D:/xxx），文件夹请用 path 参数指定！\n"
@@ -50,14 +50,15 @@ public class VfsGlobTool {
                        required = false) String path,
             AgentContextHolder contextHolder) {
 
-        try {
-            // 获取 Var_VFS 实例
-            Object vfsObj = contextHolder.getTopTempVariables().get(VFSConstants.Var_VFS);
-            if (!(vfsObj instanceof VFS)) {
-                return "错误: 虚拟文件系统未初始化";
+        if (StringUtils.isBlank(contextHolder.getVfsId())){
+            return "错误: 虚拟文件系统未初始化";
+        }
+
+        try (VFS vfs = VFS.load(contextHolder.getVfsId())) {
+            FileSystem fs = vfs.getFileSystemForRead();
+            if (fs == null) {
+                return "虚拟文件系统为空，尚无文件。建议先使用写入工具上传或创建文件后再搜索。";
             }
-            VFS vfs = (VFS) vfsObj;
-            FileSystem fs = vfs.getFileSystem();
 
             // ---------- 智能容错：自动从 pattern 中分离绝对路径 ----------
             String actualPattern = pattern;
@@ -89,12 +90,28 @@ public class VfsGlobTool {
 
             // 压缩 pattern 中的重复斜杠
             final String patternStr = actualPattern.replace('\\', '/');
-            PathMatcher matcher = fs.getPathMatcher("glob:" + patternStr);
+
+            // ---------- 构造 matcher 列表 ----------
+            // JDK 的 PathMatcher 在 "glob:**/xxx" 时要求至少一个 "/"，导致根目录直挂文件无法命中。
+            // 因此除原始 matcher 外，再追加一个去掉 "**/" 前缀的备用 matcher。
+            final List<PathMatcher> matchers = new ArrayList<>();
+            matchers.add(fs.getPathMatcher("glob:" + patternStr));
+            String stripped = patternStr;
+            while (stripped.startsWith("**/")) {
+                stripped = stripped.substring(3);
+            }
+            if (!stripped.isEmpty() && !stripped.equals(patternStr)) {
+                matchers.add(fs.getPathMatcher("glob:" + stripped));
+            }
 
             List<FileEntry> entries = new ArrayList<>();
             Files.walkFileTree(rootPath, new SimpleFileVisitor<Path>() {
                 @Override
                 public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                    // 根目录 getFileName() 为 null，需跳过
+                    if (dir.equals(rootPath)) {
+                        return FileVisitResult.CONTINUE;
+                    }
                     String dirName = dir.getFileName().toString();
                     if (EXCLUDED_DIRS.contains(dirName) || dirName.startsWith(".")) {
                         return FileVisitResult.SKIP_SUBTREE;
@@ -106,10 +123,16 @@ public class VfsGlobTool {
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                     try {
                         Path relative = rootPath.relativize(file);
+                        // 统一使用 '/' 来避免 Windows 上的匹配差异
                         String relativeStr = relative.toString().replace('\\', '/');
-                        if (matcher.matches(file.getFileName()) ||
-                                matcher.matches(Paths.get(relativeStr))) {
-                            entries.add(new FileEntry(relativeStr, attrs.lastModifiedTime().toMillis()));
+                        Path fileName = file.getFileName();
+
+                        for (PathMatcher m : matchers) {
+                            // 必须使用同一 FileSystem 的 Path，否则抛 ProviderMismatchException
+                            if (m.matches(fileName) || m.matches(fs.getPath(relativeStr))) {
+                                entries.add(new FileEntry(relativeStr, attrs.lastModifiedTime().toMillis()));
+                                break;
+                            }
                         }
                     } catch (Exception ignored) {
                     }

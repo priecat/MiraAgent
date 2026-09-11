@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.modules.ai.client.openai.chat.entity.ChatMessage;
 import net.itzq.mira.modules.ai.client.config.IApiReqParamsCallback;
-import net.itzq.mira.modules.ai.client.config.ModelRegistrationConfig;
+import net.itzq.mira.modules.ai.client.config.ModelApiConfig;
 import net.itzq.mira.modules.ai.client.sse.HttpSSEClient;
 import net.itzq.mira.modules.ai.client.sse.SseException;
 import net.itzq.mira.modules.ai.client.tool.FCUtil;
@@ -26,9 +26,9 @@ public class OpenAICompatibleChatService {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    private ModelRegistrationConfig config;
+    private ModelApiConfig config;
 
-    public OpenAICompatibleChatService(ModelRegistrationConfig config) {
+    public OpenAICompatibleChatService(ModelApiConfig config) {
         // 使用HttpSSEClient默认配置，可根据需要调整
         this.config = config;
         this.httpSSEClient = HttpSSEClient.getInstance();
@@ -115,7 +115,13 @@ public class OpenAICompatibleChatService {
             HttpStreamEventInterface handler;
             try {
                 // 创建流式事件处理器
-                Class<? extends HttpStreamEventInterface> sseEventHandler = config.getSseEventHandler();
+                String sseEventHandlerClassName = config.getSseEventHandler();
+
+                Class<? extends HttpStreamEventInterface> sseEventHandler =  StreamEventHandlerManage.resolve(sseEventHandlerClassName,false);;
+                if (sseEventHandler == null) {
+                    log.warn("加载 SSE 事件处理器类失败（未注册别名）: {}, 将使用默认处理器", sseEventHandlerClassName);
+                    sseEventHandler = OpenAICompatibleStreamEventHandler.class;
+                }
 
                 Constructor<? extends HttpStreamEventInterface> constructor =
                         sseEventHandler.getConstructor(SseEventListener.class);

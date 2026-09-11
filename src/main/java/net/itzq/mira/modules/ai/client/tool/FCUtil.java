@@ -6,6 +6,8 @@ import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.client.openai.tool.Tool;
 import net.itzq.mira.modules.ai.client.tool.annotation.ToolParam;
+import net.itzq.mira.modules.ai.openapi.ApiOperation;
+import net.itzq.mira.modules.ai.openapi.OpenApiRegistry;
 import net.itzq.mira.modules.ai.utils.JsonRepair;
 import net.itzq.mira.modules.toolfun.ToolFun;
 
@@ -244,24 +246,47 @@ public class FCUtil {
             Class<?>[] parameterTypes = method.getParameterTypes();
             Parameter[] parameters = method.getParameters();
 
+            boolean isOpenApiTool = false;
+
             for (int i = 0; i < method.getParameterCount(); i++) {
                 Class<?> parameterType = parameterTypes[i];
-                Parameter parameter = parameters[i];
-
-                if (parameterType == AgentContextHolder.class) {
-                    invokeParams.add(contextHolder);
-                    continue;
-                }
-
-                ToolParam annotation = parameter.getAnnotation(ToolParam.class);
-                if (annotation != null) {
-                    String key = parameter.getName();
-                    Object object = args.getObject(key, parameterType);
-                    invokeParams.add(object);
-                } else {
-                    invokeParams.add(null);
+                if (parameterType == ApiOperation.class) {
+                    isOpenApiTool = true;
+                    break;
                 }
             }
+
+            if (isOpenApiTool) {
+
+                ApiOperation apiOperation = OpenApiRegistry.get(functionName);
+
+                invokeParams.add(args);
+                invokeParams.add(contextHolder);
+                invokeParams.add(apiOperation);
+
+            } else {
+
+                for (int i = 0; i < method.getParameterCount(); i++) {
+                    Class<?> parameterType = parameterTypes[i];
+                    Parameter parameter = parameters[i];
+
+                    if (parameterType == AgentContextHolder.class) {
+                        invokeParams.add(contextHolder);
+                        continue;
+                    }
+
+                    ToolParam annotation = parameter.getAnnotation(ToolParam.class);
+                    if (annotation != null) {
+                        String key = parameter.getName();
+                        Object object = args.getObject(key, parameterType);
+                        invokeParams.add(object);
+                    } else {
+                        invokeParams.add(null);
+                    }
+                }
+
+            }
+
             String response;
             try {
                 Object toolInstance = toolInstanceCache.computeIfAbsent(
@@ -400,5 +425,14 @@ public class FCUtil {
      */
     public static List<String> getAllRegisteredToolNames() {
         return new ArrayList<>(toolMethodMap.keySet());
+    }
+
+    /**
+     * 按前缀批量卸载工具（用于 OpenAPI 导入的 namespace 清理）
+     */
+    public static synchronized void unregisterByPrefix(String prefix) {
+        toolMethodMap.keySet().removeIf(k -> k != null && k.startsWith(prefix));
+        toolEntityMap.keySet().removeIf(k -> k != null && k.startsWith(prefix));
+        log.info("【AiTool】按前缀卸载工具: {}", prefix);
     }
 }

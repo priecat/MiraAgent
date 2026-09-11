@@ -6,7 +6,6 @@ import net.itzq.mira.modules.ai.client.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.client.tool.annotation.ToolParam;
 import net.itzq.mira.modules.toolfun.ToolFun;
 import net.itzq.mira.modules.vfs.VFS;
-import net.itzq.mira.modules.vfs.VFSConstants;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;
@@ -67,6 +66,7 @@ public class VfsGrepTool {
     }
 
     @Tool(name = ToolFun.Tool_VFS_Grep,
+          display = "内容搜索",
           description = "基于正则表达式的内存文件系统搜索工具。\n\n"
                   + "使用说明：\n"
                   + "- 始终使用 Grep 进行内容搜索\n"
@@ -93,14 +93,15 @@ public class VfsGrepTool {
             @ToolParam(description = "启用跨行匹配模式（dotall + multiline）", required = false) Boolean multiline,
             AgentContextHolder contextHolder) {
 
-        try {
-            // 获取 Var_VFS 实例
-            Object vfsObj = contextHolder.getTopTempVariables().get(VFSConstants.Var_VFS);
-            if (!(vfsObj instanceof VFS)) {
-                return "搜索失败: 虚拟文件系统未初始化";
+        if (StringUtils.isBlank(contextHolder.getVfsId())){
+            return "搜索失败: 虚拟文件系统未初始化";
+        }
+
+        try (VFS vfs = VFS.load(contextHolder.getVfsId())) {
+            FileSystem fs = vfs.getFileSystemForRead();
+            if (fs == null) {
+                return "虚拟文件系统为空，尚无文件可搜索。建议先使用写入工具上传或创建文件后再搜索。";
             }
-            VFS vfs = (VFS) vfsObj;
-            FileSystem fs = vfs.getFileSystem();
 
             // 参数默认值
             String searchPath = StringUtils.isBlank(path) ? "/" : path;
@@ -142,6 +143,10 @@ public class VfsGrepTool {
             Files.walkFileTree(rootPath, new SimpleFileVisitor<Path>() {
                 @Override
                 public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                    // 根目录 getFileName() 为 null，需跳过
+                    if (dir.equals(rootPath)) {
+                        return FileVisitResult.CONTINUE;
+                    }
                     String dirName = dir.getFileName().toString();
                     if (EXCLUDED_DIRS.contains(dirName) || dirName.startsWith(".")) {
                         return FileVisitResult.SKIP_SUBTREE;

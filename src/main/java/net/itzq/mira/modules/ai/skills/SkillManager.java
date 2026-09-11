@@ -37,12 +37,23 @@ public class SkillManager  {
         if (initialized) {
             return;
         }
+        SkillBundle.setSkillDir(skillsDirPath);
         List<SkillEntity> skills = SkillLoader.loadSkills(skillsDirPath);
         for (SkillEntity skill : skills) {
             registerSkill(skill);
         }
         initialized = true;
         log.info("SkillManager 初始化完成，共注册 {} 个技能", skillRegistry.size());
+    }
+
+    /**
+     * 关闭所有SkillBundle，释放资源
+     */
+    public void shutdown() {
+        SkillBundle.closeAll();
+        skillRegistry.clear();
+        triggerIndex.clear();
+        initialized = false;
     }
 
     /**
@@ -73,6 +84,13 @@ public class SkillManager  {
      */
     public Collection<SkillEntity> getAllSkills() {
         return skillRegistry.values();
+    }
+
+    /**
+     * 获取所有已注册技能的slug列表
+     */
+    public List<String> getAllSkillSlugs() {
+        return new ArrayList<>(skillRegistry.keySet());
     }
 
     /**

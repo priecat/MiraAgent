@@ -11,6 +11,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.util.Set;
+
+import static net.itzq.mira.modules.toolfun.code.FileReadTool.BLOCKED_PATHS;
 
 /**
  * FileWriteTool - 全量文件写入工具
@@ -45,6 +50,15 @@ public class FileWriteTool {
         try {
             Path path = Paths.get(filePath).toAbsolutePath().normalize();
 
+            // 安全检查：设备文件（含 /proc/*/fd/* 别名）
+            String pathStr = path.toString();
+            String fileName = path.getFileName().toString().toUpperCase();
+            for (String blocked : BLOCKED_PATHS) {
+                if (pathStr.contains(blocked) || fileName.equals(blocked)) {
+                    return "安全限制: 无法读取设备文件或特殊文件: " + filePath;
+                }
+            }
+
             boolean exists = Files.exists(path);
 
             // 创建父目录
@@ -58,6 +72,9 @@ public class FileWriteTool {
 
             // 写入文件
             Files.write(path, normalizedContent.getBytes(StandardCharsets.UTF_8));
+            // 加上执行权限 → 0755
+            Set<PosixFilePermission> perms = PosixFilePermissions.fromString("rwxr-xr-x");
+            Files.setPosixFilePermissions(path, perms);
 
             // 统计
             long fileSize = Files.size(path);

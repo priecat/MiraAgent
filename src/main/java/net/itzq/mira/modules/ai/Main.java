@@ -1,5 +1,6 @@
 package net.itzq.mira.modules.ai;
 
+import cn.hutool.http.HttpUtil;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.agent.BasicAgent;
 import net.itzq.mira.modules.ai.agent.BasicClient;
@@ -8,7 +9,7 @@ import net.itzq.mira.modules.ai.agent.event.EventHook;
 import net.itzq.mira.modules.ai.agent.event.EventListener;
 import net.itzq.mira.modules.ai.agent.event.type.*;
 import net.itzq.mira.modules.ai.client.config.ApiProviderManage;
-import net.itzq.mira.modules.ai.client.config.ModelRegistrationConfig;
+import net.itzq.mira.modules.ai.client.config.ModelApiConfig;
 import net.itzq.mira.modules.ai.client.handle.ApiRequestParams;
 import net.itzq.mira.modules.ai.client.handle.OpenAICompatibleStreamEventHandler;
 import net.itzq.mira.modules.ai.client.openai.chat.entity.ChatMessage;
@@ -37,14 +38,14 @@ public class Main {
 
 
         // 配置本地模型（如LM Studio、vLLM等）
-        ModelRegistrationConfig localConfig = ModelRegistrationConfig.builder()
+        ModelApiConfig localConfig = ModelApiConfig.builder()
                 .alias("local-model")
                 .providerName("Local")
                 .apiModelName("qwen/qwen3-vl-8b")
                 .apiHost("http://127.0.0.1:1234")
                 .apiEndpoint("/v1/chat/completions")
                 .apiKey("")
-                .sseEventHandler(OpenAICompatibleStreamEventHandler.class)
+                .sseEventHandler(OpenAICompatibleStreamEventHandler.class.getName())
                 .build();
 
         // 注册模型
@@ -443,10 +444,8 @@ public class Main {
     // ==================== 主方法 ====================
 
     public static void main(String[] args) throws InterruptedException {
-        // 设置日志级别为 INFO
-        ch.qos.logback.classic.Logger rootLogger =
-                (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
-        rootLogger.setLevel(ch.qos.logback.classic.Level.INFO);
+
+        HttpUtil.createServer(8888).start();
 
         // 1. 设置模型
         setupModels();
@@ -474,5 +473,7 @@ public class Main {
 
         // 10. 多模态
         multimodalChat();
+
+
     }
 }

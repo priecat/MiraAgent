@@ -11,10 +11,13 @@ import lombok.Data;
 public class WorkspaceConfig {
 
     /** 数据根目录 */
-    private String dataDir = WorkspaceConstants.DEFAULT_DATA_DIR;
+    private String dataDir = null;
 
     /** Lucene 搜索返回结果数 */
     private int luceneTopN = WorkspaceConstants.DEFAULT_LUCENE_TOP_N;
+
+    /** 是否启用 Lucene 全文索引（默认禁用） */
+    private boolean luceneEnabled = false;
 
     /**
      * 映射根目录（虚拟路径风格，如 /workspace）。
@@ -22,7 +25,7 @@ public class WorkspaceConfig {
      *   虚拟路径 /data/hello.txt
      *   真实路径 <storageDir>/data/hello.txt
      *   映射路径 <mapDir>/data/hello.txt  （如 /workspace/data/hello.txt）
-     * 为 null 或空时，映射路径 == 虚拟路径（恒等映射）。
+     * 为 null 或空时，映射路径 == 真实路径。
      */
     private String mapDir;
 

@@ -305,8 +305,7 @@ public class BasicClient   {
             log.error("BasicClient AI 调用失败 (SSE): statusCode={}, errMsg={}", e.getStatusCode(), e.getErrMsg());
             throw e;
         } catch (Exception e) {
-            log.error("BasicClient AI 调用失败", e);
-            throw new RuntimeException("AI 服务异常", e);
+            throw new RuntimeException(e);
         }
 
         JSONObject json = JSON.parseObject(response);

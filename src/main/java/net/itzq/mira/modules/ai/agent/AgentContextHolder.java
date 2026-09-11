@@ -3,13 +3,14 @@ package net.itzq.mira.modules.ai.agent;
 import com.fasterxml.jackson.databind.JavaType;
 import lombok.Builder;
 import lombok.Data;
+import net.itzq.mira.core.utils.IdGen;
 import net.itzq.mira.core.utils.JsonMapper;
 import net.itzq.mira.modules.ai.agent.event.EventCenter;
 import net.itzq.mira.modules.ai.agent.event.EventHook;
 import net.itzq.mira.modules.ai.client.handle.ApiRequestParams;
 import net.itzq.mira.modules.ai.client.openai.chat.entity.ChatMessage;
 import net.itzq.mira.modules.ai.client.sse.IEmitter;
-import net.itzq.mira.modules.workspace.Workspace;
+import net.itzq.mira.modules.ai.mcp.McpPrepared;
 
 import java.util.*;
 
@@ -51,9 +52,15 @@ public class AgentContextHolder {
     @Builder.Default
     Map<String, Object> tempVariables = new LinkedHashMap<>();
 
-    BasicAgent topAgent;
+    @Builder.Default
+    int currentDeep = 1;
 
-    BasicAgent parentAgent;
+    @Builder.Default
+    String currentChatLoopRoundId = IdGen.uuid();
+
+    IBasicAgent topAgent;
+
+    IBasicAgent parentAgent;
 
     IEmitter emitter;
 
@@ -62,6 +69,14 @@ public class AgentContextHolder {
     EventHook eventHook;
 
     String workspaceId;
+
+    String vfsId;
+
+    @Builder.Default
+    McpPrepared mcpConfig = McpPrepared.empty();  // MCP配置（含configJson和工具列表）
+
+    @Builder.Default
+    List<String> activeSkillSlugs = new ArrayList<>();  // 本次对话可用的技能slug列表
 
     public void addHistory(ChatMessage message) {
         getHistory().add(message);
@@ -127,5 +142,12 @@ public class AgentContextHolder {
             return getTopAgent().getContextHolder().getWorkspaceId();
         }
         return getWorkspaceId();
+    }
+
+    public String getTopVfsId() {
+        if (getTopAgent() != null) {
+            return getTopAgent().getContextHolder().getVfsId();
+        }
+        return getVfsId();
     }
 }

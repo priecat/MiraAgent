@@ -5,13 +5,14 @@ import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.client.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.client.tool.annotation.ToolParam;
 import net.itzq.mira.modules.toolfun.ToolFun;
-import net.itzq.mira.modules.workspace.Workspace;
+import net.itzq.mira.modules.workspace.FileWorkspace;
 import org.apache.commons.lang3.StringUtils;
 
-import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
+
+import static net.itzq.mira.modules.toolfun.code.FileReadTool.BLOCKED_PATHS;
 
 /**
  * ListFilesTool - 目录列表工具（code-explorer子代理专用）
@@ -52,6 +53,16 @@ public class ListFilesTool {
             if (searchPath == null) {
                 return "错误：当前未设置默认工作空间，必须指定 path 参数，或向用户询问查找的根目录路径参数。";
             }
+
+            Path path0 = Paths.get(searchPath).toAbsolutePath().normalize();
+            // 安全检查
+            String pathStr = path0.toString();
+            for (String blocked : BLOCKED_PATHS) {
+                if (pathStr.contains(blocked) || pathStr.equals(blocked)) {
+                    return "安全限制: 无法读取设备文件或特殊文件: " + searchPath;
+                }
+            }
+
 
             Path rootPath = Paths.get(searchPath).toAbsolutePath().normalize();
             if (!Files.exists(rootPath)) {
@@ -146,7 +157,7 @@ public class ListFilesTool {
             return path;
         }
         if (contextHolder != null && StringUtils.isNotBlank(contextHolder.getWorkspaceId())) {
-            try (Workspace wk = Workspace.load(contextHolder.getWorkspaceId())) {
+            try (FileWorkspace wk = FileWorkspace.load(contextHolder.getWorkspaceId())) {
                 return wk.getStorageRoot().toString();
             } catch (Exception ignored) {
             }

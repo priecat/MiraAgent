@@ -12,7 +12,6 @@ public class WorkspaceConstants {
     public static final String VAR_SESSION_WORKSPACE = "workspace_session";
 
     // ==================== 默认值 ====================
-    public static final String DEFAULT_DATA_DIR = "./data/workspace";
     public static final int DEFAULT_TOP_N = 10;
     public static final int DEFAULT_LUCENE_TOP_N = 100;
 

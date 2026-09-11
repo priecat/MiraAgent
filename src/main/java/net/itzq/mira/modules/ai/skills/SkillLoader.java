@@ -5,9 +5,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -34,20 +35,23 @@ public class SkillLoader  {
             return skills;
         }
 
-        File[] skillDirs = skillsDir.listFiles(File::isDirectory);
-        if (skillDirs == null) {
+        File[] zipFiles = skillsDir.listFiles((dir, name) -> name.endsWith(".zip"));
+        if (zipFiles == null || zipFiles.length == 0) {
+            log.warn("技能目录中无zip包: {}", skillsDirPath);
             return skills;
         }
 
-        for (File skillDir : skillDirs) {
+        for (File zipFile : zipFiles) {
+            String skillName = zipFile.getName().replace(".zip", "");
             try {
-                SkillEntity skill = loadSkill(skillDir);
+                SkillBundle bundle = SkillBundle.get(skillName);
+                SkillEntity skill = loadSkill(bundle);
                 if (skill != null) {
                     skills.add(skill);
                     log.info("已加载技能: {} ({})", skill.getSlug(), skill.getName());
                 }
             } catch (Exception e) {
-                log.error("加载技能失败: {}", skillDir.getName(), e);
+                log.error("加载技能失败: {}", skillName, e);
             }
         }
 
@@ -58,31 +62,24 @@ public class SkillLoader  {
     /**
      * 加载单个技能目录
      */
-    public static SkillEntity loadSkill(File skillDir) {
+    public static SkillEntity loadSkill(SkillBundle bundle) {
         // 1. 解析 _skillhub_meta.json
-        File metaFile = new File(skillDir, "_skillhub_meta.json");
         JSONObject meta = null;
-        if (metaFile.exists()) {
+        String metaContent = bundle.readMeta();
+        if (metaContent != null) {
             try {
-                String metaContent = new String(Files.readAllBytes(metaFile.toPath()), StandardCharsets.UTF_8);
                 meta = JSONObject.parseObject(metaContent);
             } catch (Exception e) {
-                log.warn("解析技能元数据失败: {}", metaFile.getPath(), e);
+                log.warn("解析技能元数据失败", e);
             }
         }
 
         // 2. 解析 SKILL.md
-        File skillMdFile = new File(skillDir, "SKILL.md");
-        if (!skillMdFile.exists()) {
-            log.warn("SKILL.md 不存在: {}", skillMdFile.getPath());
-            return null;
-        }
-
         String skillMdContent;
         try {
-            skillMdContent = new String(Files.readAllBytes(skillMdFile.toPath()), StandardCharsets.UTF_8);
+            skillMdContent = bundle.readSkillMd();
         } catch (Exception e) {
-            log.error("读取SKILL.md失败: {}", skillMdFile.getPath(), e);
+            log.error("读取SKILL.md失败", e);
             return null;
         }
 
@@ -106,8 +103,8 @@ public class SkillLoader  {
             skill.setSource(meta.getString("source"));
         }
 
-        // 5. 设置目录路径
-        skill.setSkillDir(skillDir.getAbsolutePath());
+        // 5. 设置技能slug（用于运行时 SkillBundle.get 加载zip包）
+        skill.setSkillDir(skill.getSlug());
 
         return skill;
     }

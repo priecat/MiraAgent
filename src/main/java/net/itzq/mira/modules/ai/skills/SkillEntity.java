@@ -30,7 +30,7 @@ public class SkillEntity   {
     private List<String> triggers = new ArrayList<>();
     /** SKILL.md正文内容（frontmatter之后的部分） */
     private String content;
-    /** 技能目录绝对路径 */
+    /** 技能slug（用于SkillBundle加载zip包） */
     private String skillDir;
     /** 元数据来源 */
     private String source;

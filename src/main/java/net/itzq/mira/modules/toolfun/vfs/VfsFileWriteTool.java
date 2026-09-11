@@ -7,10 +7,10 @@ import net.itzq.mira.modules.ai.client.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.client.tool.annotation.ToolParam;
 import net.itzq.mira.modules.toolfun.ToolFun;
 import net.itzq.mira.modules.vfs.VFS;
+import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;
 
-import static net.itzq.mira.modules.vfs.VFSConstants.*;
 
 /**
  * VfsFileWriteTool - 全量文件写入工具（基于内存 Var_VFS）
@@ -27,6 +27,7 @@ import static net.itzq.mira.modules.vfs.VFSConstants.*;
 public class VfsFileWriteTool {
 
     @Tool(name = ToolFun.Tool_VFS_File_Write,
+          display = "创建文件",
           description = "将文件写入虚拟文件系统。\n\n"
                   + "使用说明：\n"
                   + "- 此工具将覆盖目标路径上已有的文件\n"
@@ -40,13 +41,11 @@ public class VfsFileWriteTool {
             @ToolParam(description = "要写入的完整文件内容（必填）") String content,
             AgentContextHolder contextHolder) {
 
-        try {
-            // 获取 Var_VFS 实例
-            Object vfsObj = contextHolder.getTopTempVariables().get(Var_VFS);
-            if (!(vfsObj instanceof VFS)) {
-                return "写入失败: 虚拟文件系统未初始化";
-            }
-            VFS vfs = (VFS) vfsObj;
+        if (StringUtils.isBlank(contextHolder.getVfsId())){
+            return "写入失败: 虚拟文件系统未初始化";
+        }
+
+        try (VFS vfs = VFS.load(contextHolder.getVfsId())) {
 
             boolean exists = vfs.exists(filePath);
 

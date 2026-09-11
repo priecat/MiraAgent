@@ -6,6 +6,7 @@ import net.itzq.mira.modules.ai.client.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.client.tool.annotation.ToolParam;
 import net.itzq.mira.modules.toolfun.ToolFun;
 import net.itzq.mira.modules.vfs.VFS;
+import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -14,7 +15,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-import static net.itzq.mira.modules.vfs.VFSConstants.*;
 
 /**
  * FileReadTool - 多格式文件阅读器（基于内存 Var_VFS）
@@ -47,6 +47,7 @@ public class VfsFileReadTool {
     ));
 
     @Tool(name = ToolFun.Tool_VFS_File_Read,
+          display = "读取文件",
           description = "从虚拟文件系统读取文件内容。\n\n"
                   + "使用说明：\n"
                   + "- file_path 参数必须是绝对路径\n"
@@ -64,13 +65,11 @@ public class VfsFileReadTool {
             @ToolParam(description = "读取行数上限，默认 2000", required = false) Integer limit,
             AgentContextHolder contextHolder) {
 
-        try {
-            // 从上下文临时变量中获取 Var_VFS 实例
-            Object vfsObj = contextHolder.getTopTempVariables().get(Var_VFS);
-            if (!(vfsObj instanceof VFS)) {
-                return "读取失败: 虚拟文件系统未初始化";
-            }
-            VFS vfs = (VFS) vfsObj;
+        if (StringUtils.isBlank(contextHolder.getVfsId())){
+            return "读取失败: 虚拟文件系统未初始化";
+        }
+
+        try (VFS vfs = VFS.load(contextHolder.getVfsId())) {
 
             // 文件存在性检查
             if (!vfs.exists(filePath)) {
