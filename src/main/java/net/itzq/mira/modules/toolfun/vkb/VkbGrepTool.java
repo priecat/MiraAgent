@@ -1,25 +1,23 @@
-package net.itzq.mira.modules.vkb.toolfun;
+package net.itzq.mira.modules.toolfun.vkb;
 
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.client.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.client.tool.annotation.ToolParam;
+import net.itzq.mira.modules.toolfun.ToolFun;
 import net.itzq.mira.modules.vkb.SessionKB;
+import net.itzq.mira.modules.vkb.VKB;
 import net.itzq.mira.modules.vkb.VKBConstants;
 import net.itzq.mira.modules.vkb.model.SearchResult;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.nio.file.FileSystem;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * VKB Grep 工具 - 在知识库文件中搜索正则表达式
+ * VKB Grep 工具 - 在虚拟工作空间文件中搜索正则表达式
  *
  * @author tangzq
  */
@@ -28,11 +26,11 @@ public class VkbGrepTool {
     private static final Logger log = LoggerFactory.getLogger(VkbGrepTool.class);
     private static final int DEFAULT_CONTEXT_LINES = 3;
 
-    @Tool(name = VKBConstants.TOOL_GREP,
-            description = "在知识库文件中使用正则表达式搜索内容。\n\n"
+    @Tool(name = ToolFun.TOOL_VKB_GREP,
+            description = "在“工作空间”文件中使用正则表达式搜索内容。\n\n"
                     + "使用说明：\n"
                     + "- 支持完整正则表达式语法\n"
-                    + "- 可指定文件路径或搜索整个知识库\n"
+                    + "- 可指定文件路径或搜索整个“工作空间”\n"
                     + "- 返回匹配行及上下文\n"
                     + "- 适合在定位到相关文件后，精确查找内容")
     public String grep(
@@ -41,11 +39,19 @@ public class VkbGrepTool {
             @ToolParam(description = "上下文行数，默认 3") Integer contextLines,
             AgentContextHolder contextHolder) {
 
-        try {
-            SessionKB kb = getSessionKB(contextHolder);
-            if (kb == null) {
-                return "错误: 知识库未初始化";
-            }
+
+        String sessionId = (String) contextHolder.getTopTempVariables().get(VKBConstants.VAR_SESSION_KB);
+        if (StringUtils.isBlank(sessionId)) {
+            sessionId = contextHolder.getHistoryId();
+        }
+        if (StringUtils.isBlank(sessionId)) {
+            return "错误: “工作空间”未初始化";
+        }
+
+
+
+        try (VKB kb = VKB.load(sessionId)) {
+
 
             int ctxLines = contextLines != null ? contextLines : DEFAULT_CONTEXT_LINES;
 
@@ -62,7 +68,7 @@ public class VkbGrepTool {
 
             if (StringUtils.isNotBlank(filePath)) {
                 // 在指定文件中搜索
-                String content = kb.getKnowledgeTextByPath(filePath);
+                String content = kb.readString(filePath);
                 if (content == null) {
                     return "文件不存在: " + filePath;
                 }
@@ -74,7 +80,7 @@ public class VkbGrepTool {
                     return "未找到匹配 '" + pattern + "' 的内容";
                 }
                 for (SearchResult result : grepResults) {
-                    String content = kb.getKnowledgeTextByPath(result.getFilePath());
+                    String content = kb.readString(result.getFilePath());
                     if (content != null) {
                         sb.append("=== ").append(result.getFilePath()).append(" ===\n");
                         totalMatches += grepInContent(sb, regex, content, result.getFilePath(), ctxLines);

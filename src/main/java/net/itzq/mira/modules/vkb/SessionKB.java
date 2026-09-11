@@ -18,7 +18,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * 会话知识库实例
+ * 会话虚拟工作空间实例
  *
  * 每个实例对应一个 SQLite 数据库 + 一个 Lucene 索引目录 + 一个虚拟文件系统
  *
@@ -379,7 +379,7 @@ public class SessionKB implements Closeable {
     }
 
     /**
-     * 获取知识库统计信息
+     * 获取虚拟工作空间统计信息
      */
     public KBInfo getInfo() {
         return sqliteStorage.getInfo(sessionId);

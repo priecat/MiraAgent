@@ -9,6 +9,7 @@ import net.itzq.mira.modules.ai.agent.event.EventHook;
 import net.itzq.mira.modules.ai.client.handle.ApiRequestParams;
 import net.itzq.mira.modules.ai.client.openai.chat.entity.ChatMessage;
 import net.itzq.mira.modules.ai.client.sse.IEmitter;
+import net.itzq.mira.modules.workspace.Workspace;
 
 import java.util.*;
 
@@ -60,7 +61,7 @@ public class AgentContextHolder {
 
     EventHook eventHook;
 
-
+    String workspaceId;
 
     public void addHistory(ChatMessage message) {
         getHistory().add(message);
@@ -115,5 +116,16 @@ public class AgentContextHolder {
             return getTopAgent().getContextHolder().getTempVariables();
         }
         return tempVariables;
+    }
+
+
+    /**
+     * 获取顶层 Agent 的 Workspace
+     */
+    public String getTopWorkspaceId() {
+        if (getTopAgent() != null) {
+            return getTopAgent().getContextHolder().getWorkspaceId();
+        }
+        return getWorkspaceId();
     }
 }

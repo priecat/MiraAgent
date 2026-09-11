@@ -1,7 +1,7 @@
-package net.itzq.mira.modules.vkb.model;
+package net.itzq.mira.modules.workspace.model;
 
 /**
- * 虚拟工作空间统计信息
+ * 工作空间统计信息
  *
  * @author tangzq
  */
@@ -10,9 +10,11 @@ public class KBInfo {
     private String sessionId;
     private int totalDocuments;
     private int totalChunks;
+    private int totalDirectories;
     private long sourceTotalSize;
     private long textTotalSize;
     private long createdAt;
+    private boolean initialized;
 
     public KBInfo() {
     }
@@ -48,6 +50,14 @@ public class KBInfo {
         this.totalChunks = totalChunks;
     }
 
+    public int getTotalDirectories() {
+        return totalDirectories;
+    }
+
+    public void setTotalDirectories(int totalDirectories) {
+        this.totalDirectories = totalDirectories;
+    }
+
     public long getSourceTotalSize() {
         return sourceTotalSize;
     }
@@ -72,11 +82,21 @@ public class KBInfo {
         this.createdAt = createdAt;
     }
 
+    public boolean isInitialized() {
+        return initialized;
+    }
+
+    public void setInitialized(boolean initialized) {
+        this.initialized = initialized;
+    }
+
     @Override
     public String toString() {
         return "KBInfo{" +
                 "sessionId='" + sessionId + '\'' +
+                ", initialized=" + initialized +
                 ", totalDocuments=" + totalDocuments +
+                ", totalDirectories=" + totalDirectories +
                 ", totalChunks=" + totalChunks +
                 ", sourceTotalSize=" + sourceTotalSize +
                 ", textTotalSize=" + textTotalSize +

@@ -26,7 +26,7 @@ public class VKBExample {
 
     public static void main(String[] args) {
         System.out.println("========================================");
-        System.out.println("  VKB 轻量知识库示例");
+        System.out.println("  VKB 轻量虚拟工作空间示例");
         System.out.println("========================================\n");
 
         try {
@@ -124,7 +124,7 @@ public class VKBExample {
 
         // 列出所有文档
         List<Document> docs = vk.getKB().listDocuments();
-        System.out.println("\n当前知识库文档数: " + docs.size());
+        System.out.println("\n当前虚拟工作空间文档数: " + docs.size());
         for (Document doc : docs) {
             System.out.println("  - " + doc.getFilePath() + " (" + doc.getChunkCount() + " 分段)");
         }
@@ -272,7 +272,7 @@ public class VKBExample {
         VKB vk = VKB.load(sessionId);
 
         KBInfo info = vk.getInfo();
-        System.out.println("知识库统计:");
+        System.out.println("虚拟工作空间统计:");
         System.out.println("  会话ID: " + info.getSessionId());
         System.out.println("  文档数: " + info.getTotalDocuments());
         System.out.println("  分段数: " + info.getTotalChunks());

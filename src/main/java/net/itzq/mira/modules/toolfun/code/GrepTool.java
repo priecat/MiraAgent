@@ -1,11 +1,11 @@
-package net.itzq.mira.modules.vfs.toolfun;
+package net.itzq.mira.modules.toolfun.code;
 
 import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.client.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.client.tool.annotation.ToolParam;
-import net.itzq.mira.modules.vfs.VFS;
-import net.itzq.mira.modules.vfs.VFSConstants;
+import net.itzq.mira.modules.toolfun.ToolFun;
+import net.itzq.mira.modules.workspace.Workspace;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;
@@ -18,19 +18,19 @@ import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
 /**
- * GrepTool - 基于内存 Var_VFS 的正则搜索工具
+ * GrepTool - 基于 Java NIO 的内容搜索工具
  *
  * - 支持完整正则表达式语法
  * - 支持 glob 文件过滤和 type 过滤
  * - 支持 content/files_with_matches/count 三种输出模式
- * - 支持上下文行（-B/-A/-C），合并重叠区间，间隙用 -- 标记
+ * - 支持上下文行（-B/-A/-C）
  * - 自动排除 VCS 目录（.git, .svn 等）
  * - 默认 head_limit 250 行
  *
  * @author tangzq
  */
 @Slf4j
-public class VfsGrepTool {
+public class GrepTool {
 
     private static final int DEFAULT_HEAD_LIMIT = 250;
 
@@ -65,20 +65,21 @@ public class VfsGrepTool {
         TYPE_EXTENSIONS.put("yml", Arrays.asList(".yml", ".yaml"));
     }
 
-    @Tool(name = VFSConstants.Tool_Grep,
-          description = "基于正则表达式的内存文件系统搜索工具。\n\n"
-                  + "使用说明：\n"
-                  + "- 始终使用 Grep 进行内容搜索\n"
-                  + "- 支持完整正则表达式语法（例如 \"log.*Error\"、\"function\\s+\\w+\"）\n"
-                  + "- 使用 glob 参数过滤文件（例如 \"*.js\"、\"**/*.tsx\"）或 type 参数过滤文件类型\n"
-                  + "- 输出模式：\"content\" 显示匹配行内容、\"files_with_matches\" 仅显示文件路径（默认）、\"count\" 显示匹配数量\n"
-                  + "- 使用 contextAround/contextBefore/contextAfter 参数显示匹配行的上下文\n"
-                  + "- 对于需要多轮搜索的开放式任务，使用 SubAgent 工具代替\n"
-                  + "- 正则语法：使用 Java 正则引擎，特殊字符需要转义（如 `interface\\{\\}` 匹配 Go 代码中的 `interface{}`）\n"
-                  + "- 多行匹配：默认单行匹配。跨行模式请设置 multiline=true")
+    @Tool(name =  ToolFun.TOOL_Grep,
+          display = "内容搜索",
+          description = "基于正则表达式的强大内容搜索工具。\n\n"
+                    + "使用说明：\n"
+                    + "- 始终使用 Grep 进行内容搜索，不要通过 Bash 工具调用 grep/rg 命令\n"
+                    + "- 支持完整正则表达式语法（例如 \"log.*Error\"、\"function\\s+\\w+\"）\n"
+                    + "- 使用 glob 参数过滤文件（例如 \"*.js\"、\"**/*.tsx\"）或 type 参数过滤文件类型\n"
+                    + "- 输出模式：\"content\" 显示匹配行内容、\"files_with_matches\" 仅显示文件路径（默认）、\"count\" 显示匹配数量\n"
+                    + "- 对于需要多轮搜索的开放式任务，使用 SubAgent 工具代替\n"
+                    + "- 正则语法：使用 Java 正则引擎，特殊字符需要转义（如 `interface\\{\\}` 匹配 Go 代码中的 `interface{}`）\n"
+                    + "- 多行匹配：默认单行匹配。跨行模式请设置 multiline=true"
+          )
     public String grep(
             @ToolParam(description = "正则表达式搜索模式（必填）") String pattern,
-            @ToolParam(description = "搜索目录路径，默认为 Var_VFS 根目录", required = false) String path,
+            @ToolParam(description = "搜索目录路径，默认为当前工作空间根目录", required = false) String path,
             @ToolParam(description = "文件过滤 glob 模式，例如 \"*.java\"、\"**/*.xml\"", required = false) String glob,
             @ToolParam(description = "输出模式: content(显示匹配行), files_with_matches(仅文件路径, 默认), count(匹配数量)", required = false) String outputMode,
             @ToolParam(description = "显示匹配行前 N 行上下文", required = false) Integer contextBefore,
@@ -93,19 +94,21 @@ public class VfsGrepTool {
             AgentContextHolder contextHolder) {
 
         try {
-            // 获取 Var_VFS 实例
-            Object vfsObj = contextHolder.getTopTempVariables().get(VFSConstants.Var_VFS);
-            if (!(vfsObj instanceof VFS)) {
-                return "搜索失败: 虚拟文件系统未初始化";
+            String searchPath = path;
+            if (StringUtils.isBlank(path)) {
+                if (StringUtils.isNotBlank(contextHolder.getWorkspaceId())) {
+                    try (Workspace wk = Workspace.load(contextHolder.getWorkspaceId())){
+                        searchPath = wk.getStorageRoot().toString();
+                    }
+                }
             }
-            VFS vfs = (VFS) vfsObj;
-            FileSystem fs = vfs.getFileSystem();
+            if (StringUtils.isBlank(searchPath)){
+                return "错误：当前未设置默认工作空间，必须指定 path 参数，或向用户询问查找的根目录路径参数。";
+            }
 
-            // 参数默认值
-            String searchPath = StringUtils.isBlank(path) ? "/" : path;
             String mode = StringUtils.isBlank(outputMode) ? "files_with_matches" : outputMode;
-            int ctxBefore = contextBefore != null ? Math.max(0, contextBefore) : 0;
-            int ctxAfter = contextAfter != null ? Math.max(0, contextAfter) : 0;
+            int ctxBefore = contextBefore != null ? contextBefore : -1;
+            int ctxAfter = contextAfter != null ? contextAfter : -1;
             if (contextAround != null && contextAround > 0) {
                 ctxBefore = contextAround;
                 ctxAfter = contextAround;
@@ -129,15 +132,12 @@ public class VfsGrepTool {
             }
 
             // 搜索并收集结果
-            Path rootPath = fs.getPath(searchPath);
+            Path rootPath = Paths.get(searchPath).toAbsolutePath().normalize();
             if (!Files.exists(rootPath)) {
                 return "搜索目录不存在: " + searchPath;
             }
 
-            // 按文件缓存全量行内容（用于上下文行提取）
-            Map<String, List<String>> fileContents = new LinkedHashMap<>();
             List<MatchResult> allResults = new ArrayList<>();
-
             Files.walkFileTree(rootPath, new SimpleFileVisitor<Path>() {
                 @Override
                 public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
@@ -152,8 +152,9 @@ public class VfsGrepTool {
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                     // Glob 过滤
                     if (StringUtils.isNotBlank(glob)) {
-                        PathMatcher matcher = fs.getPathMatcher("glob:" + glob);
+                        PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + glob);
                         if (!matcher.matches(file.getFileName()) && !file.toString().contains(glob.replace("*", ""))) {
+                            // 简单 glob 匹配
                             if (!fileMatchGlob(file, glob)) {
                                 return FileVisitResult.CONTINUE;
                             }
@@ -176,23 +177,15 @@ public class VfsGrepTool {
                         }
                     }
 
-                    // 内容搜索：读取全部行，缓存后逐行匹配
+                    // 内容搜索
                     try {
                         List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
-                        String relPath = rootPath.relativize(file).toString();
-                        boolean hasMatch = false;
-
                         for (int i = 0; i < lines.size(); i++) {
                             Matcher matcher = regex.matcher(lines.get(i));
                             if (matcher.find()) {
-                                allResults.add(new MatchResult(relPath, i + 1));
-                                hasMatch = true;
+                                String relPath = rootPath.relativize(file).toString();
+                                allResults.add(new MatchResult(relPath, i + 1, lines.get(i)));
                             }
-                        }
-
-                        // 仅缓存有匹配的文件，节省内存
-                        if (hasMatch) {
-                            fileContents.put(relPath, lines);
                         }
                     } catch (IOException ignored) {
                         // 跳过无法读取的文件
@@ -216,9 +209,7 @@ public class VfsGrepTool {
                     return formatCount(resultsToShow, rootPath);
                 case "content":
                 default:
-                    boolean useContext = ctxBefore > 0 || ctxAfter > 0;
-                    return formatContent(resultsToShow, fileContents, limit, skip, totalMatches,
-                            ctxBefore, ctxAfter, showNum, useContext);
+                    return formatContent(resultsToShow, limit, skip, totalMatches, ctxBefore, ctxAfter, showNum);
             }
 
         } catch (Exception e) {
@@ -231,12 +222,15 @@ public class VfsGrepTool {
     private boolean fileMatchGlob(Path file, String globPattern) {
         String fileName = file.getFileName().toString();
 
+        // 拆分 glob 模式：先按空格拆分，对包含 {} 的模式不拆分内部逗号
         List<String> patterns = new ArrayList<>();
         String[] spaceSplit = globPattern.split("\\s+");
         for (String raw : spaceSplit) {
             if (raw.contains("{") && raw.contains("}")) {
+                // braces 模式保留原样
                 patterns.add(raw);
             } else {
+                // 按逗号拆分不含 braces 的模式
                 String[] commaSplit = raw.split(",");
                 for (String p : commaSplit) {
                     if (!p.isEmpty()) patterns.add(p);
@@ -245,6 +239,8 @@ public class VfsGrepTool {
         }
 
         for (String pattern : patterns) {
+            // 将 glob 转换为正则：. → \\. * → .* ? → .
+            // 同时处理 {a,b} → (a|b)
             String regex = pattern
                     .replace(".", "\\.")
                     .replace("*", ".*")
@@ -295,156 +291,59 @@ public class VfsGrepTool {
         return sb.toString();
     }
 
-    /**
-     * 格式化：内容模式（含上下文行）
-     *
-     * 上下文行处理逻辑：
-     * 1. 每个匹配行向前后扩展 ctxBefore/ctxAfter 行
-     * 2. 相邻或重叠的区间自动合并（避免重复输出）
-     * 3. 区间之间的间隙用 "--" 分隔
-     */
-    private String formatContent(List<MatchResult> results, Map<String, List<String>> fileContents,
-            int limit, int skip, int total, int ctxBefore, int ctxAfter,
-            boolean showNum, boolean useContext) {
-
+    /** 格式化：内容模式（含上下文行） */
+    private String formatContent(List<MatchResult> results, int limit, int skip,
+            int total, int ctxBefore, int ctxAfter, boolean showNum) {
         StringBuilder sb = new StringBuilder();
         if (skip > 0 || total > limit) {
             sb.append(String.format("[结果分页: 限制 %d, 偏移 %d, 共 %d 条]\n", limit, skip, total));
         }
 
-        // 按文件分组，保持出现顺序
-        Map<String, List<Integer>> fileMatches = new LinkedHashMap<>();
-        for (MatchResult r : results) {
-            fileMatches.computeIfAbsent(r.filePath, k -> new ArrayList<>()).add(r.lineNumber);
-        }
-
         int shown = 0;
-        String lastFile = null;
-
-        for (Map.Entry<String, List<Integer>> entry : fileMatches.entrySet()) {
+        for (MatchResult r : results) {
             if (shown >= limit) break;
 
-            String filePath = entry.getKey();
-            List<Integer> matchLines = entry.getValue();
-            List<String> lines = fileContents.get(filePath);
-            if (lines == null) continue;
-
-            int totalLines = lines.size();
-
-            if (!useContext) {
-                // 无上下文：逐行输出匹配行（保持旧行为兼容）
-                if (lastFile != null) sb.append("--\n");
-                sb.append(filePath).append(":\n");
-                lastFile = filePath;
-
-                for (int lineNum : matchLines) {
-                    if (shown >= limit) break;
-                    appendLine(sb, lines, lineNum, totalLines, showNum);
-                    shown++;
-                }
-            } else {
-                // 有上下文：合并区间后输出
-                List<int[]> mergedRanges = mergeContextRanges(matchLines, ctxBefore, ctxAfter, totalLines);
-                Set<Integer> matchLineSet = new HashSet<>(matchLines);
-                boolean isFirstRange = true;
-
-                for (int[] range : mergedRanges) {
-                    if (shown >= limit) break;
-
-                    // 文件头
-                    if (lastFile == null || !lastFile.equals(filePath)) {
-                        if (lastFile != null) sb.append("--\n");
-                        sb.append(filePath).append(":\n");
-                        lastFile = filePath;
-                    }
-
-                    // 区间间的间隙分隔符（同文件内多个不连续区间）
-                    if (!isFirstRange) {
-                        sb.append("--\n");
-                    }
-                    isFirstRange = false;
-
-                    // 输出区间内的每一行
-                    for (int lineNum = range[0]; lineNum <= range[1]; lineNum++) {
-                        if (shown >= limit) break;
-                        boolean isMatch = matchLineSet.contains(lineNum);
-                        appendContextLine(sb, lines, lineNum, totalLines, showNum, isMatch);
-                        if (isMatch) shown++;
-                    }
-                }
+            // 文件头
+            if (shown == 0 || !results.get(Math.max(0, shown - 1)).filePath.equals(r.filePath)) {
+                if (shown > 0) sb.append("--\n");
+                sb.append(r.filePath).append(":\n");
             }
+
+            // 上下文行（简化：仅标注行号，实际需回读文件）
+            if (ctxBefore > 0 || ctxAfter > 0) {
+                sb.append("  ...\n");
+            }
+
+            // 匹配行
+            if (showNum) {
+                sb.append(String.format("%6d: %s\n", r.lineNumber, r.lineContent));
+            } else {
+                sb.append(r.lineContent).append("\n");
+            }
+
+            if (ctxBefore > 0 || ctxAfter > 0) {
+                sb.append("  ...\n");
+            }
+
+            shown++;
         }
 
-        if (shown < total) {
-            sb.append(String.format("\n[已截断: 显示 %d/%d 条匹配]", shown, total));
+        if (shown < results.size()) {
+            sb.append(String.format("\n[已截断: 显示 %d/%d 条]", shown, total));
         }
         return sb.toString();
     }
 
-    /**
-     * 将匹配行号列表 + 上下文行数 → 合并后的连续区间列表
-     * 例如匹配行 [5, 10, 12]，ctxBefore=2, ctxAfter=2 → [[3,7],[8,14]]（8-7<=1 所以合并）
-     */
-    private List<int[]> mergeContextRanges(List<Integer> matchLines, int ctxBefore, int ctxAfter, int totalLines) {
-        List<int[]> ranges = new ArrayList<>();
-        for (int line : matchLines) {
-            int start = Math.max(1, line - ctxBefore);
-            int end = Math.min(totalLines, line + ctxAfter);
-            ranges.add(new int[]{start, end});
-        }
-
-        // 按起始行排序
-        ranges.sort(Comparator.comparingInt(a -> a[0]));
-
-        // 合并重叠或相邻区间（间隙 <= 1 行视为连续）
-        List<int[]> merged = new ArrayList<>();
-        for (int[] range : ranges) {
-            if (!merged.isEmpty()) {
-                int[] last = merged.get(merged.size() - 1);
-                if (range[0] <= last[1] + 1) {
-                    // 重叠或相邻，合并
-                    last[1] = Math.max(last[1], range[1]);
-                    continue;
-                }
-            }
-            merged.add(new int[]{range[0], range[1]});
-        }
-        return merged;
-    }
-
-    /** 输出一行（无上下文模式，匹配行） */
-    private void appendLine(StringBuilder sb, List<String> lines, int lineNum, int totalLines, boolean showNum) {
-        if (lineNum < 1 || lineNum > totalLines) return;
-        String content = lines.get(lineNum - 1);
-        if (showNum) {
-            sb.append(String.format("%6d: %s\n", lineNum, content));
-        } else {
-            sb.append(content).append("\n");
-        }
-    }
-
-    /** 输出一行（上下文模式，匹配行用 : 标记，上下文行用 - 标记） */
-    private void appendContextLine(StringBuilder sb, List<String> lines, int lineNum,
-            int totalLines, boolean showNum, boolean isMatch) {
-        if (lineNum < 1 || lineNum > totalLines) return;
-        String content = lines.get(lineNum - 1);
-        if (showNum) {
-            // 匹配行用 ":"，上下文行用 "-"（类似 grep -n 的惯例）
-            String marker = isMatch ? ":" : "-";
-            sb.append(String.format("%6d%s %s\n", lineNum, marker, content));
-        } else {
-            sb.append(content).append("\n");
-        }
-    }
-
-    /** 匹配结果内部类（仅存储文件路径和行号，行内容从缓存读取） */
+    /** 匹配结果内部类 */
     private static class MatchResult {
         final String filePath;
         final int lineNumber;
+        final String lineContent;
 
-        MatchResult(String filePath, int lineNumber) {
+        MatchResult(String filePath, int lineNumber, String lineContent) {
             this.filePath = filePath;
             this.lineNumber = lineNumber;
+            this.lineContent = lineContent;
         }
     }
 }

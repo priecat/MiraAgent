@@ -1,9 +1,10 @@
-package net.itzq.mira.modules.vfs.toolfun;
+package net.itzq.mira.modules.toolfun.vfs;
 
 import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.client.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.client.tool.annotation.ToolParam;
+import net.itzq.mira.modules.toolfun.ToolFun;
 import net.itzq.mira.modules.vfs.VFS;
 
 import java.io.IOException;
@@ -45,7 +46,7 @@ public class VfsFileReadTool {
             ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".ico"
     ));
 
-    @Tool(name = Tool_File_Read,
+    @Tool(name = ToolFun.Tool_VFS_File_Read,
           description = "从虚拟文件系统读取文件内容。\n\n"
                   + "使用说明：\n"
                   + "- file_path 参数必须是绝对路径\n"
@@ -53,7 +54,8 @@ public class VfsFileReadTool {
                   + "- 使用 offset 和 limit 参数读取指定范围\n"
                   + "- 读取图片文件时，返回文件元数据（格式、大小等）\n"
                   + "- 如果读取的文件存在但内容为空，会收到系统提醒\n"
-                  + "- 必须先用 "+Tool_File_Read+" 工具读取文件，然后才能用 "+Tool_File_Edit+"/"+Tool_File_Write+" 修改它\n"
+                  + "- 必须先用 "+ToolFun.Tool_VFS_File_Read +" 工具读取文件，然后才能用 "+ToolFun.Tool_VFS_File_Edit +"/"+ToolFun.Tool_VFS_File_Write
+                  +" 修改它\n"
 
          )
     public String fileRead(

@@ -11,13 +11,6 @@ public class VKBConstants {
     /** VKB SessionKB 实例在 AgentContextHolder.tempVariables 中的键 */
     public static final String VAR_SESSION_KB = "vkb_session";
 
-    // ==================== Agent 工具名 ====================
-    public static final String TOOL_SEARCH = "vkb_search";
-    public static final String TOOL_GREP = "vkb_grep";
-    public static final String TOOL_FILE_READ = "vkb_file_read";
-    public static final String TOOL_FILE_WRITE = "vkb_file_write";
-    public static final String TOOL_FILE_EDIT = "vkb_file_edit";
-    public static final String TOOL_GLOB = "vkb_glob";
 
     // ==================== 默认值 ====================
     public static final String DEFAULT_DATA_DIR = "./data/vkb";

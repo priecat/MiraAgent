@@ -1,9 +1,11 @@
-package net.itzq.mira.modules.vkb.toolfun;
+package net.itzq.mira.modules.toolfun.vkb;
 
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.client.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.client.tool.annotation.ToolParam;
+import net.itzq.mira.modules.toolfun.ToolFun;
 import net.itzq.mira.modules.vkb.SessionKB;
+import net.itzq.mira.modules.vkb.VKB;
 import net.itzq.mira.modules.vkb.VKBConstants;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -17,7 +19,7 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * VKB 文件读取工具 - 读取知识库中的文件内容
+ * VKB 文件读取工具 - 读取虚拟工作空间中的文件内容
  *
  * @author tangzq
  */
@@ -27,8 +29,8 @@ public class VkbFileReadTool {
     private static final int DEFAULT_LIMIT = 2000;
     private static final int MAX_OUTPUT_SIZE_BYTES = 256 * 1024;
 
-    @Tool(name = VKBConstants.TOOL_FILE_READ,
-            description = "从知识库虚拟文件系统读取文件内容。\n\n"
+    @Tool(name = ToolFun.TOOL_VKB_FILE_READ,
+            description = "从“工作空间”文件系统读取文件内容。\n\n"
                     + "使用说明：\n"
                     + "- file_path 参数必须是绝对路径（如 /docs/report.md）\n"
                     + "- 默认从文件开头读取最多 2000 行\n"
@@ -40,11 +42,15 @@ public class VkbFileReadTool {
             @ToolParam(description = "读取行数上限，默认 2000", required = false) Integer limit,
             AgentContextHolder contextHolder) {
 
-        try {
-            SessionKB kb = getSessionKB(contextHolder);
-            if (kb == null) {
-                return "错误: 知识库未初始化";
-            }
+        String sessionId = (String) contextHolder.getTopTempVariables().get(VKBConstants.VAR_SESSION_KB);
+        if (StringUtils.isBlank(sessionId)) {
+            sessionId = contextHolder.getHistoryId();
+        }
+        if (StringUtils.isBlank(sessionId)) {
+            return "错误: “工作空间”未初始化";
+        }
+
+        try (VKB kb = VKB.load(sessionId)) {
 
             FileSystem fs = kb.getFileSystem();
             Path path = fs.getPath(filePath);
@@ -60,7 +66,7 @@ public class VkbFileReadTool {
             }
 
             // 读取内容
-            String content = kb.getKnowledgeTextByPath(filePath);
+            String content = kb.readString(filePath);
 
             if (StringUtils.isBlank(content)) {
                 return "文件为空: " + filePath;

@@ -1,9 +1,10 @@
-package net.itzq.mira.modules.vfs.toolfun;
+package net.itzq.mira.modules.toolfun.vfs;
 
 import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.client.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.client.tool.annotation.ToolParam;
+import net.itzq.mira.modules.toolfun.ToolFun;
 import net.itzq.mira.modules.vfs.VFS;
 import org.apache.commons.lang3.StringUtils;
 
@@ -30,11 +31,12 @@ public class VfsFileEditTool {
 
     private static final long MAX_FILE_SIZE = 1024 * 1024 * 1024; // 1 GiB
 
-    @Tool(name = Tool_File_Edit,
-          description = "在文件中执行精确字符串替换。\n\n" + "使用说明：\n" + "- 编辑前必须先用 " + Tool_File_Read + " " + "工具读取文件。—— "
-                  + "如果未先读取就编辑，工具将报错\n" + "- 编辑 " + Tool_File_Read + " 工具输出中的文本时，必须保留精确的缩进（制表符/空格）\n" + "- "
-                  + Tool_File_Read + " 工具输出的行号前缀格式为：行号 + 竖线。不要将此前缀包含在 old_string 或 new_string 中\n" + "- 优先使用 "
-                  + Tool_File_Edit + " 编辑已有文件，而不是用 " + Tool_File_Write + " 重写。仅在新建文件或完全重写时才用 " + Tool_File_Write + "\n"
+    @Tool(name = ToolFun.Tool_VFS_File_Edit,
+          description = "在文件中执行精确字符串替换。\n\n" + "使用说明：\n" + "- 编辑前必须先用 " + ToolFun.Tool_VFS_File_Read + " " + "工具读取文件。—— "
+                  + "如果未先读取就编辑，工具将报错\n" + "- 编辑 " + ToolFun.Tool_VFS_File_Read + " 工具输出中的文本时，必须保留精确的缩进（制表符/空格）\n" + "- "
+                  + ToolFun.Tool_VFS_File_Read + " 工具输出的行号前缀格式为：行号 + 竖线。不要将此前缀包含在 old_string 或 new_string 中\n" + "- 优先使用 "
+                  + ToolFun.Tool_VFS_File_Edit + " 编辑已有文件，而不是用 " + ToolFun.Tool_VFS_File_Write
+                  + " 重写。仅在新建文件或完全重写时才用 " + ToolFun.Tool_VFS_File_Write + "\n"
                   + "- 仅当用户明确要求时才使用 " + "emoji\n"
                   + "- 如果 old_string 在文件中不唯一，编辑将失败。此时请提供更长的上下文使 old_string 唯一，或设置 replace_all=true\n"
                   + "- 使用 replace_all=true 可替换文件中所有匹配项\n")

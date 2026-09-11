@@ -331,11 +331,13 @@ public class SQLiteStorage implements AutoCloseable {
         try {
             connection.setAutoCommit(false);
             try {
-                // 删除向量
+//                // 删除向量
 //                try (PreparedStatement pstmt = connection.prepareStatement(
 //                        "DELETE FROM vectors WHERE chunk_id IN (SELECT chunk_id FROM chunks WHERE doc_id = ?)")) {
 //                    pstmt.setString(1, docId);
 //                    pstmt.executeUpdate();
+//                } catch (SQLException ignored) {
+//                    // vectors 表可能不存在
 //                }
 
                 // 删除分段
@@ -1170,14 +1172,14 @@ public class SQLiteStorage implements AutoCloseable {
      * 内部删除文档（不管理事务，由调用方控制）
      */
     private void deleteDocumentInternal(String docId) throws SQLException {
-        // 删除向量
-        try (PreparedStatement pstmt = connection.prepareStatement(
-                "DELETE FROM vectors WHERE chunk_id IN (SELECT chunk_id FROM chunks WHERE doc_id = ?)")) {
-            pstmt.setString(1, docId);
-            pstmt.executeUpdate();
-        } catch (SQLException ignored) {
-            // vectors 表可能不存在
-        }
+//        // 删除向量
+//        try (PreparedStatement pstmt = connection.prepareStatement(
+//                "DELETE FROM vectors WHERE chunk_id IN (SELECT chunk_id FROM chunks WHERE doc_id = ?)")) {
+//            pstmt.setString(1, docId);
+//            pstmt.executeUpdate();
+//        } catch (SQLException ignored) {
+//            // vectors 表可能不存在
+//        }
         // 删除分段
         try (PreparedStatement pstmt = connection.prepareStatement(
                 "DELETE FROM chunks WHERE doc_id = ?")) {

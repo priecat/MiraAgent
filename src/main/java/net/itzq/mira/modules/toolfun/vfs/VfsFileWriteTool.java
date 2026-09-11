@@ -1,10 +1,11 @@
-package net.itzq.mira.modules.vfs.toolfun;
+package net.itzq.mira.modules.toolfun.vfs;
 
 
 import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.client.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.client.tool.annotation.ToolParam;
+import net.itzq.mira.modules.toolfun.ToolFun;
 import net.itzq.mira.modules.vfs.VFS;
 
 import java.io.IOException;
@@ -25,12 +26,13 @@ import static net.itzq.mira.modules.vfs.VFSConstants.*;
 @Slf4j
 public class VfsFileWriteTool {
 
-    @Tool(name = Tool_File_Write,
+    @Tool(name = ToolFun.Tool_VFS_File_Write,
           description = "将文件写入虚拟文件系统。\n\n"
                   + "使用说明：\n"
                   + "- 此工具将覆盖目标路径上已有的文件\n"
-                  + "- 如果是已有文件，必须先使用 "+Tool_File_Read+" 工具读取\n"
-                  + "- 修改已有文件时优先使用 "+Tool_File_Edit+" 工具（仅发送 diff），仅在新建文件或完全重写时才使用 "+Tool_File_Write+"\n"
+                  + "- 如果是已有文件，必须先使用 "+ToolFun.Tool_VFS_File_Read +" 工具读取\n"
+                  + "- 修改已有文件时优先使用 "+ToolFun.Tool_VFS_File_Edit +" 工具（仅发送 diff），仅在新建文件或完全重写时才使用 "+ToolFun.Tool_VFS_File_Write
+                  +"\n"
                   + "- 除非用户明确要求，否则不要创建文档文件 (*.md) 或 README\n"
                   + "- 仅当用户明确要求时才使用 emoji")
     public String fileWrite(

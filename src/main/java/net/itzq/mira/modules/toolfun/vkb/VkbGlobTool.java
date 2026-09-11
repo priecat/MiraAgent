@@ -1,8 +1,9 @@
-package net.itzq.mira.modules.vkb.toolfun;
+package net.itzq.mira.modules.toolfun.vkb;
 
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.client.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.client.tool.annotation.ToolParam;
+import net.itzq.mira.modules.toolfun.ToolFun;
 import net.itzq.mira.modules.vkb.SessionKB;
 import net.itzq.mira.modules.vkb.VKBConstants;
 import org.apache.commons.lang3.StringUtils;
@@ -24,12 +25,12 @@ public class VkbGlobTool {
     private static final Logger log = LoggerFactory.getLogger(VkbGlobTool.class);
     private static final int DEFAULT_MAX_RESULTS = 100;
 
-    @Tool(name = VKBConstants.TOOL_GLOB,
-            description = "知识库文件模式匹配工具，通过 glob 模式查找文件名。\n"
-                    + "示例：\n"
-                    + "  - 查找所有 .md 文件: pattern=\"**/*.md\"\n"
-                    + "  - 在 /docs 下找所有文件: pattern=\"**/*\", path=\"/docs\"\n"
-                    + "返回匹配的文件路径（最多 100 个）。")
+    @Tool(name = ToolFun.TOOL_VKB_GLOB,
+          description = "知识库文件模式匹配工具，通过 glob 模式查找文件名。\n"
+                  + "示例：\n"
+                  + "  - 查找所有 .md 文件: pattern=\"**/*.md\"\n"
+                  + "  - 在 /docs 下找所有文件: pattern=\"**/*\", path=\"/docs\"\n"
+                  + "返回匹配的文件路径（最多 100 个）。")
     public String glob(
             @ToolParam(description = "glob 模式（必填），例如 \"**/*.md\"") String pattern,
             @ToolParam(description = "从哪个目录开始搜索（可选），默认根目录 '/'", required = false) String path,

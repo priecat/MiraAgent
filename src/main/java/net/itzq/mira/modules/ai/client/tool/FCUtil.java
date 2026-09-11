@@ -7,6 +7,7 @@ import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.client.openai.tool.Tool;
 import net.itzq.mira.modules.ai.client.tool.annotation.ToolParam;
 import net.itzq.mira.modules.ai.utils.JsonRepair;
+import net.itzq.mira.modules.toolfun.ToolFun;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
@@ -22,8 +23,6 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 public class FCUtil {
 
-    // 移除了 Reflections 实例
-
     public static Map<String, Tool> toolEntityMap = new ConcurrentHashMap<>();
 
     public static Map<String, Method> toolMethodMap = new ConcurrentHashMap<>();
@@ -32,26 +31,151 @@ public class FCUtil {
     private static final Map<Class<?>, Object> toolInstanceCache = new ConcurrentHashMap<>();
 
     static {
+        scanTools(ToolFun.defaultToolFun());
+    }
+
+    /**
+     *  注册自定义工具
+     */
+    public static synchronized void registerTool(AiToolDefine aiTool) {
+        String functionName = aiTool.name();
+
+        if (toolMethodMap.containsKey(functionName)) {
+            log.warn("工具函数名重复，将被覆盖: {} (类: {})", functionName, aiTool.getClass().getName());
+        }
+
+        Method method = aiTool.executeMethod();
+        // 注册到 toolMethodMap，供后续 invoke / getFunctionEntity 使用
+        toolMethodMap.put(functionName, method);
+        toolEntityMap.put(functionName, buildToolEntity(aiTool));
+
+        log.info("【AiTool】注册成功: {} -> {}", functionName, aiTool.getClass().getSimpleName());
+    }
+
+
+    private static Tool buildToolEntity(AiToolDefine aiTool) {
+        Tool.Function function = new Tool.Function();
+        function.setName(aiTool.name());
+        function.setDisplay(aiTool.display());
+        function.setSubAgent(aiTool.subAgent());
+        function.setDescription(aiTool.description());
+        function.setParameters(buildParameters(aiTool.parameters()));
+        Tool tool = new Tool();
+        tool.setType("function");
+        tool.setFunction(function);
+        return tool;
+    }
+
+    private static Tool.Function.Parameter buildParameters(List<AiToolParam> params) {
+        Map<String, Tool.Function.Property> properties = new HashMap<>();
+        List<String> required = new ArrayList<>();
+        if (params != null) {
+            for (AiToolParam p : params) {
+                Tool.Function.Property prop = new Tool.Function.Property();
+                prop.setType(mapJavaTypeToJsonSchemaType(p.getType()));
+                prop.setDescription(p.getDescription());
+                if (p.getType().isEnum()) {
+                    prop.setEnumValues(getEnumValues(p.getType()));
+                }
+                properties.put(p.getName(), prop);
+                if (p.isRequired()) {
+                    required.add(p.getName());
+                }
+            }
+        }
+        return new Tool.Function.Parameter("object", properties, required);
+    }
+
+    /**
+     * 根据方法上的 @Tool / @ToolParam 注解构建 Tool 实体。
+     * 供 scanTools / scanAllTools 注册时以及 getToolEntity / getFunctionEntity 复用，避免重复反射构建。
+     *
+     * @param method 带有 @Tool 注解的方法
+     * @return 构建好的 Tool 实体；方法无 @Tool 注解时返回 null
+     */
+    private static Tool buildToolEntityFromMethod(Method method) {
+        net.itzq.mira.modules.ai.client.tool.annotation.Tool toolAnnotation =
+                method.getAnnotation(net.itzq.mira.modules.ai.client.tool.annotation.Tool.class);
+        if (toolAnnotation == null) {
+            return null;
+        }
+        Tool.Function function = new Tool.Function();
+        function.setName(toolAnnotation.name());
+        function.setSubAgent(toolAnnotation.subAgent());
+        function.setDisplay(toolAnnotation.display());
+        function.setDescription(toolAnnotation.description());
+        setFunctionParameters(function, method);
+
+        Tool tool = new Tool();
+        tool.setType("function");
+        tool.setFunction(function);
+        return tool;
+    }
+
+    /**
+     * 手动扫描指定的一个或多个工具类，注册其中带有 @Tool 注解的方法。
+     *
+     * @param toolClasses 包含一个或多个 @Tool 注解方法的工具类
+     */
+    public static void scanTools(Class<?>... toolClasses) {
+        if (toolClasses == null || toolClasses.length == 0) {
+            log.warn("scanTools 未传入任何工具类，跳过扫描");
+            return;
+        }
+
+        long startTime = System.currentTimeMillis();
+        int registered = 0;
+
+        for (Class<?> clazz : toolClasses) {
+            if (clazz == null) {
+                continue;
+            }
+            for (Method method : clazz.getDeclaredMethods()) {
+                net.itzq.mira.modules.ai.client.tool.annotation.Tool toolAnnotation =
+                        method.getAnnotation(net.itzq.mira.modules.ai.client.tool.annotation.Tool.class);
+                if (toolAnnotation == null) {
+                    continue;
+                }
+                String functionName = toolAnnotation.name();
+                if (toolMethodMap.containsKey(functionName)) {
+                    log.warn("工具函数名重复，将被覆盖: {} (类: {})", functionName, clazz.getName());
+                }
+                // 注册到 toolMethodMap，供后续 invoke 使用
+                toolMethodMap.put(functionName, method);
+                toolEntityMap.put(functionName, buildToolEntityFromMethod(method));
+                registered++;
+                log.info("注册 Tool: {} (来自类: {})", functionName, clazz.getName());
+            }
+        }
+
+        long cost = System.currentTimeMillis() - startTime;
+        log.info("===== 手动扫描完成，共注册 {} 个 Tool，耗时: {}ms =====", registered, cost);
+    }
+
+    /**
+     * 使用 ClassGraph 扫描 Tool 方法
+     */
+    public static void scanAllTools() {
+
         log.info("===== 开始使用 ClassGraph 扫描 Tool 方法 =====");
         long startTime = System.currentTimeMillis();
 
-        try (ScanResult scanResult = new ClassGraph()
-                .enableClassInfo()
-                .enableMethodInfo() // 必须启用方法信息扫描
-                .enableAnnotationInfo()
-                .scan()) {
+        try (ScanResult scanResult = new ClassGraph().enableClassInfo().enableMethodInfo() // 必须启用方法信息扫描
+                .enableAnnotationInfo().scan()) {
 
             // 1. 获取所有包含带有 @Tool 注解方法的类
-            ClassInfoList classInfoList = scanResult.getClassesWithMethodAnnotation(
-                    net.itzq.mira.modules.ai.client.tool.annotation.Tool.class.getName());
+            ClassInfoList classInfoList =
+                    scanResult.getClassesWithMethodAnnotation(net.itzq.mira.modules.ai.client.tool.annotation.Tool.class
+                    .getName());
 
             for (ClassInfo classInfo : classInfoList) {
                 // 2. 遍历这些类的方法信息
                 for (MethodInfo methodInfo : classInfo.getDeclaredMethodInfo()) {
 
                     // 3. 检查该方法是否确实带有 @Tool 注解
-                    AnnotationInfo toolAnnotationInfo = methodInfo.getAnnotationInfo(
-                            net.itzq.mira.modules.ai.client.tool.annotation.Tool.class.getName());
+                    AnnotationInfo toolAnnotationInfo =
+                            methodInfo.getAnnotationInfo(net.itzq.mira.modules.ai.client.tool.annotation.Tool.class
+                            .getName());
 
                     if (toolAnnotationInfo != null) {
                         try {
@@ -59,14 +183,15 @@ public class FCUtil {
                             Method method = methodInfo.loadClassAndGetMethod();
 
                             // 获取原生的注解对象，方便读取 name() 等属性
-                            net.itzq.mira.modules.ai.client.tool.annotation.Tool toolAnnotation =
-                                    method.getAnnotation(net.itzq.mira.modules.ai.client.tool.annotation.Tool.class);
+                            net.itzq.mira.modules.ai.client.tool.annotation.Tool toolAnnotation = method.getAnnotation(
+                                    net.itzq.mira.modules.ai.client.tool.annotation.Tool.class);
 
                             if (toolAnnotation != null) {
                                 String functionName = toolAnnotation.name();
-                                // 启动时直接缓存到 toolMethodMap
+                                // 启动时直接缓存到 toolMethodMap 和 toolEntityMap
                                 toolMethodMap.put(functionName, method);
-                                log.debug("扫描并注册 Tool: {}", functionName);
+                                toolEntityMap.put(functionName, buildToolEntityFromMethod(method));
+                                log.info("注册 Tool: {}", functionName);
                             }
                         } catch (Exception e) {
                             log.error("加载 Tool 方法失败: {}.{}", classInfo.getName(), methodInfo.getName(), e);
@@ -81,6 +206,7 @@ public class FCUtil {
         } catch (Exception e) {
             log.error("ClassGraph 扫描类路径失败", e);
         }
+
     }
 
     public static String invoke(String functionName, String argument, AgentContextHolder contextHolder) {
@@ -169,63 +295,22 @@ public class FCUtil {
     public static List<Tool> getAllFunctionTools(List<String> functionList) {
         List<Tool> tools = new ArrayList<>();
         for (String functionName : functionList) {
-
             Tool tool = toolEntityMap.get(functionName);
-            if (tool == null) {
-                tool = getToolEntity(functionName);
-            }
             if (tool != null) {
-                toolEntityMap.put(functionName, tool);
                 tools.add(tool);
             }
-
         }
         return !tools.isEmpty() ? tools : null;
     }
 
     public static Tool getTool(String functionName) {
         Tool tool = toolEntityMap.get(functionName);
-        if (tool == null) {
-            tool = getToolEntity(functionName);
-        }
-        if (tool != null) {
-            toolEntityMap.put(functionName, tool);
-        }
         return tool;
     }
 
-    public static Tool getToolEntity(String functionName) {
-
-        Tool.Function functionEntity = getFunctionEntity(functionName);
-        if (functionEntity != null) {
-            Tool tool = new Tool();
-            tool.setType("function");
-            tool.setFunction(functionEntity);
-            return tool;
-        }
-
-        return null;
-    }
-
     public static Tool.Function getFunctionEntity(String functionName) {
-
-        // 优化：直接从启动时缓存的 toolMethodMap 中获取，不再需要实时扫描
-        Method method = toolMethodMap.get(functionName);
-        if (method == null) {
-            return null;
-        }
-
-        net.itzq.mira.modules.ai.client.tool.annotation.Tool functionCall =
-                method.getAnnotation(net.itzq.mira.modules.ai.client.tool.annotation.Tool.class);
-
-        Tool.Function function = new Tool.Function();
-        function.setName(functionCall.name());
-        function.setSubAgent(functionCall.subAgent());
-        function.setDisplay(functionCall.display());
-        function.setDescription(functionCall.description());
-        setFunctionParameters(function, method);
-
-        return function;
+        Tool tool = getTool(functionName);
+        return tool != null ? tool.getFunction() : null;
     }
 
     private static void setFunctionParameters(Tool.Function function, Method method) {
@@ -302,43 +387,13 @@ public class FCUtil {
 
         List<String> fun = new ArrayList<>();
 
-        // 优化：不再需要全量扫描反射，直接遍历启动时就已经缓存好的 toolMethodMap
         for (Map.Entry<String, Method> entry : toolMethodMap.entrySet()) {
             String currentFunctionName = entry.getKey();
-            Method method = entry.getValue();
-
-            net.itzq.mira.modules.ai.client.tool.annotation.Tool functionCall =
-                    method.getAnnotation(net.itzq.mira.modules.ai.client.tool.annotation.Tool.class);
-
-            Tool.Function function = new Tool.Function();
-            function.setName(functionCall.name());
-            function.setDisplay(functionCall.display());
-            function.setSubAgent(functionCall.subAgent());
-            function.setDescription(functionCall.description());
-            setFunctionParameters(function, method);
-
             fun.add(currentFunctionName);
         }
 
         return fun;
     }
-
-
-    /**
-     * 从缓存获取 Function 实体（避免重复反射扫描）
-     */
-    private static Tool.Function getFunctionEntityFromCache(String functionName) {
-        // 先从 toolEntityMap 中查找（已包含 Function 元数据）
-        Tool cached = toolEntityMap.get(functionName);
-        if (cached != null && cached.getFunction() != null) {
-            return cached.getFunction();
-        }
-        // 缓存未命中，尝试获取并缓存
-        Tool tool = getTool(functionName);
-        return tool != null ? tool.getFunction() : null;
-    }
-
-
 
     /**
      * 获取所有已注册的工具名称列表（包括禁用的）

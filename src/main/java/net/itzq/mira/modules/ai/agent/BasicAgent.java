@@ -28,10 +28,8 @@ import net.itzq.mira.modules.ai.persistence.AbstractHistoryPersist;
 import net.itzq.mira.modules.ai.utils.ThreadPoolUtil;
 import org.apache.commons.lang3.StringUtils;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -59,6 +57,8 @@ public class BasicAgent {
     private boolean streamChat = false;
 
     private AbstractHistoryPersist historyPersist = null;
+
+    private final Queue<ChatMessage> appendChatMessageHistoryQueue = new ConcurrentLinkedQueue<>();
 
     public BasicAgent(AgentContextHolder contextHolder) {
         this(contextHolder, IdGen.uuidShort());
@@ -97,7 +97,8 @@ public class BasicAgent {
     // ==================== 同步入口（循环实现）====================
     public String chat(String question) {
 
-        int snapshotLen = contextHolder.getHistory().size();
+        // 对话前校验 history 合法性，移除上次异常残留的孤立消息，避免连续 user
+        ensureHistoryValid();
 
         if (StringUtils.isBlank(question)) {
             question = "";
@@ -105,7 +106,7 @@ public class BasicAgent {
         streamChat = false;
         // 添加用户问题到历史
         ChatMessage chatMessage = ChatMessage.withUser(question);
-        contextHolder.addHistory(chatMessage);
+        appendHistory(chatMessage);
 
         // 当前深度
         int currentDeep = 1;
@@ -161,29 +162,20 @@ public class BasicAgent {
             currentDeep++;
         }
 
-        // ======  因异常中断时直接返回错误信息 ======
+        // ======  异常或深度超限时补全 assistant 消息，避免 history 以 user 结尾 ======
         if (errorBreak) {
             log.error("AutoAgent【{}】因AI调用异常中断: {}", name, errorMessage);
-            return errorMessage;
+            appendHistory(ChatMessage.withAssistant(errorMessage));
+        } else if (currentDeep > maxDepth) {
+            errorMessage = "Agent 执行轮数超过最大限制 " + maxDepth + "，请检查工具调用是否陷入循环。";
+            log.error(errorMessage);
+            appendHistory(ChatMessage.withAssistant(errorMessage));
         }
 
-        // 检查是否因深度限制退出
-        if (currentDeep > maxDepth) {
-            String errorMsg = "Agent 执行轮数超过最大限制 " + maxDepth + "，请检查工具调用是否陷入循环。";
-            log.error(errorMsg);
-            return errorMsg;
-        }
+        // ======  统一持久化：无论正常/异常/深度超限，都执行持久化 ======
+        persistNewMessages();
 
-        if (historyPersist != null) {
-            List<ChatMessage> allMessages = contextHolder.getHistory();
-            List<ChatMessage> newMessages = new ArrayList<>();
-            for (int i = snapshotLen; i < allMessages.size(); i++) {
-                newMessages.add(allMessages.get(i));
-            }
-            historyPersist.saveChatMessages(newMessages, contextHolder);
-        }
-
-        return lastContent;
+        return (errorBreak || currentDeep > maxDepth) ? errorMessage : lastContent;
     }
 
     /**
@@ -232,7 +224,7 @@ public class BasicAgent {
                 assistantMessage.setContent(Content.ofText(content));
             }
         }
-        history.add(assistantMessage);
+        appendHistory(assistantMessage);
 
         return toolCalls;
     }
@@ -242,8 +234,6 @@ public class BasicAgent {
      */
     protected void executeToolCalls(List<ToolCall> toolCalls, String roundId, StreamEventHandler handler,
             Integer currentDeep) {
-        List<ChatMessage> history = contextHolder.getHistory();
-
         EventCenter eventCenter = contextHolder.getEventCenter();
         EventHook eventHook = contextHolder.getEventHook();
 
@@ -258,7 +248,7 @@ public class BasicAgent {
             if (executedToolSignatures.contains(signature)) {
                 String errorMsg = "检测到重复的工具调用: " + signature + "，已跳过。";
                 log.warn(errorMsg);
-                history.add(ChatMessage.withTool(errorMsg, toolCall.getId()));
+                appendHistory(ChatMessage.withTool(errorMsg, toolCall.getId()));
                 continue;
             }
             executedToolSignatures.add(signature);
@@ -307,13 +297,7 @@ public class BasicAgent {
                     result = FCUtil.invoke(functionName, arguments, contextHolder);
                 }
 
-                history.add(ChatMessage.withTool(toolMsgId + "\n\n" + result, toolCall.getId()));
-
-                Tool tool = FCUtil.getTool(functionName);
-                Boolean subAgent = tool.getFunction().getSubAgent();
-                if (subAgent) {
-                    history.add(ChatMessage.withAssistant(result));
-                }
+                appendHistory(ChatMessage.withTool(toolMsgId + "\n\n" + result, toolCall.getId()));
 
                 contextHolder.getTopGlobalVariables().put(toolMsgId, result);
 
@@ -348,7 +332,7 @@ public class BasicAgent {
 
                 log.error(endMsg, e);
                 String errorMsg = "工具调用失败，错误信息: " + e.getMessage();
-                history.add(ChatMessage.withTool(errorMsg, toolCall.getId()));
+                appendHistory(ChatMessage.withTool(errorMsg, toolCall.getId()));
 
                 // 回调工具结束消息
                 {
@@ -385,7 +369,8 @@ public class BasicAgent {
         streamChat = true;
         String roundId = IdGen.uuid();
 
-        int snapshotLen = contextHolder.getHistory().size();
+        // 对话前校验 history 合法性，移除上次异常残留的孤立消息，避免连续 user
+        ensureHistoryValid();
 
         CountDownLatch finalLatch = new CountDownLatch(1);
 
@@ -396,7 +381,7 @@ public class BasicAgent {
 
         // 添加用户问题到历史
         ChatMessage chatMessage = ChatMessage.withUser(question);
-        contextHolder.addHistory(chatMessage);
+        appendHistory(chatMessage);
 
         ExecutorService executorService = ThreadPoolUtil.getExecutorService();
 
@@ -549,6 +534,9 @@ public class BasicAgent {
                             }
                         }
 
+                        // 补全 assistant 消息，避免 history 以 user 结尾
+                        ensureTrailingAssistant(errorMsg);
+
                     } else if (currentDeep > maxDepth) {
                         String errorMsg = "Agent 执行轮数超过最大限制 " + maxDepth + "，请检查工具调用是否陷入循环。";
                         log.error(errorMsg);
@@ -577,6 +565,9 @@ public class BasicAgent {
                             }
                         }
 
+                        // 补全 assistant 消息，避免 history 以 user 结尾
+                        ensureTrailingAssistant(errorMsg);
+
                     } else {
 
                         {
@@ -602,15 +593,6 @@ public class BasicAgent {
                                 eventCenter.fireChatEnd(event);
                             }
                         }
-                    }
-
-                    if (historyPersist != null) {
-                        List<ChatMessage> allMessages = contextHolder.getHistory();
-                        List<ChatMessage> newMessages = new ArrayList<>();
-                        for (int i = snapshotLen; i < allMessages.size(); i++) {
-                            newMessages.add(allMessages.get(i));
-                        }
-                        historyPersist.saveChatMessages(newMessages, contextHolder);
                     }
 
                 } catch (Exception e) {
@@ -641,7 +623,16 @@ public class BasicAgent {
                         }
                     }
 
+                    // 补全 assistant 消息，避免 history 以 user 结尾
+                    ensureTrailingAssistant("流式处理异常: " + e.getMessage());
+
                 } finally {
+                    // 统一持久化：无论正常/异常/深度超限，都在 finally 中执行持久化
+                    try {
+                        persistNewMessages();
+                    } catch (Exception pe) {
+                        log.error("流式持久化失败", pe);
+                    }
                     finalLatch.countDown();
                 }
             }
@@ -723,7 +714,7 @@ public class BasicAgent {
 
                         // 将AI的工具调用响应加入历史
                         ChatMessage responseMessage = ChatMessage.withAssistant(toolCalls);
-                        contextHolder.addHistory(responseMessage);
+                        appendHistory(responseMessage);
 
                         // 执行工具调用
                         executeToolCalls(toolCalls, roundId, handler, currentDeep);
@@ -733,7 +724,7 @@ public class BasicAgent {
 
                         // 将AI的响应加入历史
                         ChatMessage responseMessage = ChatMessage.withAssistant(handler.getAnswerOutput().toString());
-                        contextHolder.addHistory(responseMessage);
+                        appendHistory(responseMessage);
                     }
 
                 } catch (Exception e) {
@@ -790,6 +781,89 @@ public class BasicAgent {
     }
 
     // ==================== 工具方法 ====================
+
+    /**
+     * 校验并修复 history 合法性
+     * 主要处理异常终止后残留的非法消息序列，避免下次对话出现连续 user 等问题：
+     * - 移除末尾孤立的 user 消息（上次异常未得到 assistant 回复）
+     * - 为末尾带 tool_calls 但缺少 tool 结果的 assistant 补充错误 tool 消息
+     */
+    private void ensureHistoryValid() {
+        List<ChatMessage> history = contextHolder.getHistory();
+        if (!history.isEmpty()) {
+            ChatMessage lastMsg = history.get(history.size() - 1);
+            String lastRole = lastMsg.getRole();
+
+            if ("user".equals(lastRole)) {
+                // 末尾是 user，说明上次异常终止未得到 assistant 回复，移除避免连续 user
+                log.warn("AutoAgent【{}】移除 history 末尾孤立的 user 消息（上次异常残留）", name);
+                appendHistory(ChatMessage.withAssistant("[系统消息] 系统调用异常 无回复"));
+            }
+
+            if ("assistant".equals(lastRole)
+                    && lastMsg.getToolCalls() != null
+                    && !lastMsg.getToolCalls().isEmpty()) {
+                // assistant 带工具调用但缺少 tool 结果，补充错误 tool 消息使序列合法
+                log.warn("AutoAgent【{}】补充缺失的 tool 结果消息", name);
+                for (ToolCall tc : lastMsg.getToolCalls()) {
+                    appendHistory(ChatMessage.withTool("工具调用因异常未完成", tc.getId()));
+                }
+                // tool 之后补充一条 assistant 终结消息
+                appendHistory(ChatMessage.withAssistant("[工具调用因异常未完成]"));
+            }
+
+            // assistant 或 tool 结尾，序列合法
+        }
+    }
+
+    /**
+     * 确保 history 末尾是 assistant 消息
+     * 异常终止时调用，若末尾非 assistant 则补全一条 assistant 错误消息
+     */
+    private void ensureTrailingAssistant(String errorMsg) {
+        List<ChatMessage> history = contextHolder.getHistory();
+        if (history.isEmpty()) {
+            return;
+        }
+        ChatMessage lastMsg = history.get(history.size() - 1);
+        if (!"assistant".equals(lastMsg.getRole())) {
+            appendHistory(ChatMessage.withAssistant(errorMsg));
+        }
+    }
+
+    /**
+     * 添加消息到 history，同时记录到持久化队列
+     * 所有需要新增消息的地方统一走此方法，替代直接 addHistory/history.add
+     */
+    private void appendHistory(ChatMessage message) {
+        contextHolder.addHistory(message);
+        appendChatMessageHistoryQueue.offer(message);
+    }
+
+    /**
+     * 持久化队列中累积的新增消息，持久化后清空队列
+     * 会过滤掉空内容且无工具调动的消息（可能已被 history.remove 移除）
+     */
+    private void persistNewMessages() {
+        if (historyPersist == null || appendChatMessageHistoryQueue.isEmpty()) {
+            return;
+        }
+        List<ChatMessage> newMessages = new ArrayList<>();
+        for (ChatMessage msg : appendChatMessageHistoryQueue) {
+            // 跳过空内容且无工具调用的消息（已被 history.remove 移除，不应持久化）
+            boolean emptyContent = msg.getContent() == null
+                    || StringUtils.isBlank(msg.getContent().getText());
+            boolean noToolCalls = msg.getToolCalls() == null || msg.getToolCalls().isEmpty();
+            if (emptyContent && noToolCalls) {
+                continue;
+            }
+            newMessages.add(msg);
+        }
+        if (!newMessages.isEmpty()) {
+            historyPersist.saveChatMessages(newMessages, contextHolder);
+        }
+        appendChatMessageHistoryQueue.clear();
+    }
 
     /**
      * 构建消息列表（包含系统提示）

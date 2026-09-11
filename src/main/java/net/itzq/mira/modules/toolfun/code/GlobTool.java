@@ -1,25 +1,28 @@
-package net.itzq.mira.modules.vfs.toolfun;
+package net.itzq.mira.modules.toolfun.code;
 
 import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.client.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.client.tool.annotation.ToolParam;
-import net.itzq.mira.modules.vfs.VFS;
-import net.itzq.mira.modules.vfs.VFSConstants;
+import net.itzq.mira.modules.toolfun.ToolFun;
+import net.itzq.mira.modules.workspace.Workspace;
 import org.apache.commons.lang3.StringUtils;
 
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
+import java.util.regex.Pattern;
 
 /**
- * GlobTool - 内存 Var_VFS 文件模式匹配工具
+ * GlobTool - 文件模式匹配工具（增强容错版）
  *
+ * 针对小参数模型做了友好化处理：
  * - 自动识别 pattern 中的绝对路径并分离为 path 参数
+ * - 强化描述，避免模型混淆
  * - 空结果时给出排查建议
  */
 @Slf4j
-public class VfsGlobTool {
+public class GlobTool {
 
     private static final int DEFAULT_MAX_RESULTS = 100;
 
@@ -30,44 +33,40 @@ public class VfsGlobTool {
     ));
 
     // 匹配 Windows 绝对路径前缀（如 "D:/" 或 "D:\"）
-    private static final java.util.regex.Pattern WIN_ABSOLUTE_PREFIX =
-            java.util.regex.Pattern.compile("^[a-zA-Z]:[/\\\\]");
+    private static final Pattern WIN_ABSOLUTE_PREFIX =
+            Pattern.compile("^[a-zA-Z]:[/\\\\]");
 
-    @Tool(name = VFSConstants.Tool_Glob,
-          description = "内存文件系统文件模式匹配工具，通过 glob 模式查找文件名。\n"
+    @Tool(name =  ToolFun.TOOL_Glob,
+          display = "查找文件",
+          description = "文件模式匹配工具，通过 glob 模式查找文件名。\n"
                   + "【重要】pattern 只能写相对路径的模式，例如 \"**/*.java\"、\"src/**/*.xml\"。\n"
                   + "请不要在 pattern 内写盘符或绝对路径（如 D:/xxx），文件夹请用 path 参数指定！\n"
                   + "示例正确用法：\n"
-                  + "  - 在 Var_VFS 根目录下找所有 .mdx 文件: pattern=\"**/*.mdx\"（不提供 path，默认搜索 /）\n"
-                  + "  - 在 /src 下找所有 .java: pattern=\"**/*.java\", path=\"/src\"\n"
+                  + "  - 在 D:/project 下找所有 .mdx 文件: pattern=\"**/*.mdx\", path=\"D:/project\"\n"
+                  + "  - 在当前工作目录下找所有 .java: pattern=\"**/*.java\"（不提供 path 即可）\n"
                   + "返回匹配的文件路径（最多 " + DEFAULT_MAX_RESULTS + " 个），按修改时间倒序排列。"
-           )
+    )
     public String glob(
             @ToolParam(description = "glob 模式（必填），例如 \"**/*.java\"。注意：只能写相对路径模式，不要包含盘符或根路径。",
                        required = true) String pattern,
-            @ToolParam(description = "从哪个目录开始搜索（Var_VFS 路径，可选）。不填则默认搜索 Var_VFS 根目录 '/'。",
+            @ToolParam(description = "从哪个目录开始搜索（绝对路径，可选）。不填则默认使用当前工作目录。",
                        required = false) String path,
             AgentContextHolder contextHolder) {
 
         try {
-            // 获取 Var_VFS 实例
-            Object vfsObj = contextHolder.getTopTempVariables().get(VFSConstants.Var_VFS);
-            if (!(vfsObj instanceof VFS)) {
-                return "错误: 虚拟文件系统未初始化";
-            }
-            VFS vfs = (VFS) vfsObj;
-            FileSystem fs = vfs.getFileSystem();
-
             // ---------- 智能容错：自动从 pattern 中分离绝对路径 ----------
             String actualPattern = pattern;
             String actualPath = path;
 
-            if (actualPath == null || StringUtils.isBlank(actualPath)) {
+            // 如果 pattern 开头看起来像绝对路径（Windows 盘符 或 Unix / 开头）
+            if (StringUtils.isBlank(actualPath)) {
                 if (WIN_ABSOLUTE_PREFIX.matcher(actualPattern).lookingAt() || actualPattern.startsWith("/")) {
+                    // 尝试将 pattern 拆分为 [目录] + [glob 表达式]
                     int lastSep = Math.max(actualPattern.lastIndexOf('/'), actualPattern.lastIndexOf('\\'));
                     if (lastSep > 0) {
                         String possibleDir = actualPattern.substring(0, lastSep);
                         String possibleGlob = actualPattern.substring(lastSep + 1);
+                        // 如果剩下的部分看起来像 glob（包含通配符 * ? [ ] 等），则采信
                         if (possibleGlob.contains("*") || possibleGlob.contains("?") || possibleGlob.contains("[")) {
                             actualPath = possibleDir;
                             actualPattern = possibleGlob;
@@ -76,24 +75,51 @@ public class VfsGlobTool {
                     }
                 }
             }
-            // 如果分离后仍无 path，默认使用 Var_VFS 根路径
-            if (actualPath == null || StringUtils.isBlank(actualPath)) {
-                actualPath = "/";
+
+            // 如果分离后仍然没有 path，使用当前工作目录
+            if (StringUtils.isBlank(actualPath)) {
+                String searchPath = null;
+                if (contextHolder != null && StringUtils.isNotBlank(contextHolder.getWorkspaceId())) {
+                    try (Workspace wk = Workspace.load(contextHolder.getWorkspaceId())) {
+                        searchPath = wk.getStorageRoot().toString();
+                    } catch (Exception ignored) {
+                    }
+                }
+                if (StringUtils.isBlank(searchPath)) {
+                    return "错误：当前未设置默认工作空间，必须指定 path 参数，或向用户询问查找的根目录路径参数。";
+                }
+                actualPath = searchPath;
             }
 
-            Path rootPath = fs.getPath(actualPath);
+            final Path rootPath = Paths.get(actualPath).toAbsolutePath().normalize();
             if (!Files.exists(rootPath)) {
                 return "错误：搜索目录不存在 -> " + rootPath + "\n请检查 path 参数或确认文件夹未被删除/移动。";
             }
 
-            // 压缩 pattern 中的重复斜杠
+            // 压缩 path 中的重复斜杠，避免匹配失败
             final String patternStr = actualPattern.replace('\\', '/');
-            PathMatcher matcher = fs.getPathMatcher("glob:" + patternStr);
 
-            List<FileEntry> entries = new ArrayList<>();
+            // ---------- 构造 matcher 列表（关键修复） ----------
+            // JDK 的 PathMatcher 在 "glob:**/xxx" 时会要求至少一个 "/"，导致根目录直挂文件无法命中。
+            // 因此除原始 matcher 外，再追加一个去掉 "**/" 前缀的备用 matcher。
+            final List<PathMatcher> matchers = new ArrayList<>();
+            matchers.add(FileSystems.getDefault().getPathMatcher("glob:" + patternStr));
+
+            String stripped = patternStr;
+            while (stripped.startsWith("**/")) {
+                stripped = stripped.substring(3);
+            }
+            if (!stripped.isEmpty() && !stripped.equals(patternStr)) {
+                matchers.add(FileSystems.getDefault().getPathMatcher("glob:" + stripped));
+            }
+
+            final List<FileEntry> entries = new ArrayList<>();
             Files.walkFileTree(rootPath, new SimpleFileVisitor<Path>() {
                 @Override
                 public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                    if (dir.equals(rootPath)) {
+                        return FileVisitResult.CONTINUE;
+                    }
                     String dirName = dir.getFileName().toString();
                     if (EXCLUDED_DIRS.contains(dirName) || dirName.startsWith(".")) {
                         return FileVisitResult.SKIP_SUBTREE;
@@ -105,10 +131,15 @@ public class VfsGlobTool {
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                     try {
                         Path relative = rootPath.relativize(file);
+                        // 统一使用 '/' 来避免 Windows 上的匹配差异
                         String relativeStr = relative.toString().replace('\\', '/');
-                        if (matcher.matches(file.getFileName()) ||
-                                matcher.matches(Paths.get(relativeStr))) {
-                            entries.add(new FileEntry(relativeStr, attrs.lastModifiedTime().toMillis()));
+                        Path fileName = file.getFileName();
+
+                        for (PathMatcher m : matchers) {
+                            if (m.matches(fileName) || m.matches(Paths.get(relativeStr))) {
+                                entries.add(new FileEntry(relativeStr, attrs.lastModifiedTime().toMillis()));
+                                break;
+                            }
                         }
                     } catch (Exception ignored) {
                     }

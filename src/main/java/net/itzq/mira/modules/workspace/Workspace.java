@@ -1,10 +1,10 @@
-package net.itzq.mira.modules.vkb;
+package net.itzq.mira.modules.workspace;
 
-import net.itzq.mira.modules.vkb.model.Document;
-import net.itzq.mira.modules.vkb.model.Directory;
-import net.itzq.mira.modules.vkb.model.KBInfo;
-import net.itzq.mira.modules.vkb.model.SearchResult;
-import net.itzq.mira.modules.vkb.storage.SQLiteStorage;
+import net.itzq.mira.modules.workspace.model.Directory;
+import net.itzq.mira.modules.workspace.model.Document;
+import net.itzq.mira.modules.workspace.model.KBInfo;
+import net.itzq.mira.modules.workspace.model.SearchResult;
+import net.itzq.mira.modules.workspace.storage.FileStorage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,101 +15,110 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.CopyOption;
 import java.nio.file.FileSystem;
 import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.sql.SQLException;
-import java.util.*;
+import java.util.Collections;
+import java.util.List;
+import java.util.TreeSet;
 import java.util.stream.Stream;
 
 /**
- * VKB
+ * Workspace —— 磁盘文件存储工作空间
  *
- * 在 VFS 基础上额外提供：持久化存储、文档索引、全文搜索、向量检索。
+ * <p>实际落盘结构如下：
+ * <pre>
+ *   ./data/workspace-example/
+ *     a1/b2/
+ *       a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4/
+ *         lucene/                 全文索引目录
+ *         storage/                实际文件落盘目录（虚拟路径映射到此目录下）
+ *           docs/reports/xxx.md
+ * </pre>
  *
  * <pre>{@code
  * // 1. 全局初始化（应用启动时调用一次）
- * VKBConfig config = new VKBConfig();
- * config.setDataDir("/path/to/data");
- * VKB.init(config);
+ * WorkspaceConfig config = new WorkspaceConfig();
+ * config.setDataDir("./data/workspace-example");
+ * Workspace.init(config);
  *
- * // 2. 创建/加载虚拟工作空间（替代 VFS.create()）
- * try (VKB vk = VKB.load("abcdef1234567890abcdef1234567890")) {
+ * // 2. 创建/加载会话工作空间
+ * try (Workspace vk = Workspace.load("abcdef1234567890abcdef1234567890")) {
  *
- *     // VFS 兼容操作 —— 与 VFS 用法完全一致
- *     vk.write("/data/hello.txt", "Hello VKB");
+ *     vk.write("/data/hello.txt", "Hello");
  *     String content = vk.readString("/data/hello.txt");
  *     System.out.println(vk.listTree());
  *
- *     // VKB 额外能力 —— 虚拟工作空间搜索
+ *     // 额外能力 —— 工作空间搜索
  *     List<SearchResult> results = vk.search("关键词", 5);
  * }
  * }</pre>
  *
  * @author tangzq
  */
-public class VKB implements Closeable {
+public class Workspace implements Closeable {
 
-    private static final Logger log = LoggerFactory.getLogger(VKB.class);
+    private static final Logger log = LoggerFactory.getLogger(Workspace.class);
 
-    private static volatile VKBConfig globalConfig;
+    private static volatile WorkspaceConfig globalConfig;
 
-    private final SessionKB kb;
+    private final FileWorkspace kb;
 
     // ==================== 构造与生命周期 ====================
 
-    private VKB(SessionKB kb) {
+    private Workspace(FileWorkspace kb) {
         this.kb = kb;
     }
 
     /**
      * 全局初始化（必须在使用前调用一次）
      */
-    public static void init(VKBConfig config) {
+    public static void init(WorkspaceConfig config) {
         if (globalConfig != null) {
-            log.warn("VKB 已初始化，忽略重复调用");
+            log.warn("Workspace 已初始化，忽略重复调用");
             return;
         }
         if (config == null) {
             throw new IllegalArgumentException("config 不能为 null");
         }
         if (config.getDataDir() == null || config.getDataDir().isEmpty()) {
-            log.warn("未配置 dataDir，使用默认值: {}", VKBConstants.DEFAULT_DATA_DIR);
-            config.setDataDir(VKBConstants.DEFAULT_DATA_DIR);
+            log.warn("未配置 dataDir，使用默认值: {}", WorkspaceConstants.DEFAULT_DATA_DIR);
+            config.setDataDir(WorkspaceConstants.DEFAULT_DATA_DIR);
         }
         globalConfig = config;
-        log.info("VKB 初始化完成，数据目录: {}", config.getDataDir());
+        log.info("Workspace 初始化完成，数据目录: {}", config.getDataDir());
     }
 
     /**
      * 获取全局配置
      */
-    public static VKBConfig getConfig() {
+    public static WorkspaceConfig getConfig() {
         if (globalConfig == null) {
-            throw new IllegalStateException("VKB 未初始化，请先调用 VKB.init(config)");
+            throw new IllegalStateException("Workspace 未初始化，请先调用 Workspace.init(config)");
         }
         return globalConfig;
     }
 
     /**
-     * 加载或创建会话虚拟工作空间
+     * 加载或创建会话工作空间
      *
      * @param sessionId 32位UUID（无连字符）
-     * @return VKB 实例（实现了 Closeable，推荐 try-with-resources）
+     * @return Workspace 实例（实现了 Closeable，推荐 try-with-resources）
      */
-    public static VKB load(String sessionId) {
+    public static Workspace load(String sessionId) {
         if (globalConfig == null) {
-            throw new IllegalStateException("VKB 未初始化，请先调用 VKB.init(config)");
+            throw new IllegalStateException("Workspace 未初始化，请先调用 Workspace.init(config)");
         }
         validateSessionId(sessionId);
         try {
-            SessionKB kb = new SessionKB(sessionId, globalConfig);
-            return new VKB(kb);
+            FileWorkspace kb = new FileWorkspace(sessionId, globalConfig);
+            return new Workspace(kb);
         } catch (Exception e) {
-            throw new RuntimeException("加载虚拟工作空间失败: " + sessionId, e);
+            throw new RuntimeException("加载工作空间失败: " + sessionId, e);
         }
     }
 
     /**
-     * 关闭并释放资源（含 SQLite、Lucene、虚拟文件系统）
+     * 关闭并释放资源（含 Lucene 索引）
      */
     @Override
     public void close() throws IOException {
@@ -119,9 +128,9 @@ public class VKB implements Closeable {
     }
 
     /**
-     * 获取底层 SessionKB 实例，用于访问高级功能（addDocument、search、grep 等）。
+     * 获取底层会话工作空间实例，用于访问高级功能（addDocument、search、grep 等）。
      */
-    public SessionKB getKB() {
+    public FileWorkspace getKB() {
         return kb;
     }
 
@@ -144,13 +153,7 @@ public class VKB implements Closeable {
             getStorage().createDirectory(parentDir.endsWith("/") ? parentDir : parentDir + "/");
         }
 
-        // 覆盖已有文件
-        Document existing = getStorage().getDocumentByPath(np);
-        if (existing != null) {
-            kb.deleteDocument(existing.getDocId());
-        }
-
-        // 解码为文本用于虚拟工作空间索引
+        // 解码为文本用于工作空间索引
         String textContent;
         try {
             textContent = new String(data, StandardCharsets.UTF_8);
@@ -158,6 +161,7 @@ public class VKB implements Closeable {
             textContent = "";
         }
 
+        // addDocument 内部覆盖写盘 + 覆盖索引
         kb.addDocument(fileName, data, parentDir, Collections.singletonList(textContent));
     }
 
@@ -228,8 +232,7 @@ public class VKB implements Closeable {
     // ==================== 3. 目录与文件信息 ====================
 
     /**
-     * 递归列出虚拟工作空间中所有文件和目录的树状结构。
-     * 合并 directories 表的显式目录和 documents 表的文件。
+     * 递归列出工作空间中所有文件和目录的树状结构。
      *
      * @return 以换行分隔的目录树字符串（目录以 '/' 结尾）
      */
@@ -237,12 +240,12 @@ public class VKB implements Closeable {
         TreeSet<String> allPaths = new TreeSet<>();
         allPaths.add("/");
 
-        // 从 directories 表收集所有目录
+        // 收集所有目录
         for (Directory dir : getStorage().listSubDirectories("/")) {
             collectAllPaths(dir, allPaths);
         }
 
-        // 从 documents 表收集所有文件
+        // 收集所有文件
         List<Document> docs = kb.listDocuments();
         for (Document doc : docs) {
             String filePath = doc.getFilePath();
@@ -275,9 +278,6 @@ public class VKB implements Closeable {
 
     /**
      * 列出指定目录下的直接子项（文件/目录）名称，不递归。
-     * <p>
-     * 返回的是每个子项的文件名（如 "hello.txt", "subdir"），不是完整路径。
-     * 调用方拼接路径时应使用 dir + "/" + name。
      *
      * @param dir 目录路径
      * @return 包含子项文件名的流
@@ -288,8 +288,7 @@ public class VKB implements Closeable {
         if (!isDirectory(np)) {
             throw new java.nio.file.NotDirectoryException(dir);
         }
-        SQLiteStorage storage = getStorage();
-        List<String> entries = storage.listDirectory(np);
+        List<String> entries = getStorage().listDirectory(np);
         return entries.stream().map(e -> e.endsWith("/") ? e.substring(0, e.length() - 1) : e);
     }
 
@@ -311,7 +310,7 @@ public class VKB implements Closeable {
      * 判断路径是否为普通文件。
      */
     public boolean isRegularFile(String path) {
-        return getStorage().getDocumentByPath(normalizePath(path)) != null;
+        return getStorage().isRegularFile(normalizePath(path));
     }
 
     /**
@@ -330,7 +329,6 @@ public class VKB implements Closeable {
 
     /**
      * 创建目录（含所有不存在的父目录），类似 Files.createDirectories。
-     * 在 VKB 中目录会被持久化到 directories 表。
      *
      * @param dir 目录路径
      */
@@ -350,16 +348,14 @@ public class VKB implements Closeable {
         if (!parent.equals("/") && !getStorage().isDirectory(parent)) {
             throw new java.nio.file.NoSuchFileException("父目录不存在: " + parent);
         }
-        getStorage().createDirectory(np + "/");
+        getStorage().createDirectory(np);
     }
 
     /**
      * 删除文件或空目录。
-     * 如果路径是文件，删除该文件；如果是目录且为空，删除目录记录。
      *
      * @param path 文件或目录路径
      * @throws NoSuchFileException 路径不存在时抛出
-     * @throws IllegalStateException 目录不为空时抛出
      */
     public void delete(String path) throws IOException {
         String np = normalizePath(path);
@@ -372,13 +368,8 @@ public class VKB implements Closeable {
         }
 
         // 再尝试作为目录删除（非递归，目录必须为空）
-        String dirPath = np.endsWith("/") ? np : np + "/";
-        if (getStorage().isDirectory(dirPath)) {
-            try {
-                getStorage().deleteDirectory(dirPath, false);
-            } catch (SQLException e) {
-                throw new IOException("删除目录失败: " + e.getMessage(), e);
-            }
+        if (getStorage().isDirectory(np)) {
+            getStorage().deleteDirectory(np, false);
             return;
         }
 
@@ -401,14 +392,9 @@ public class VKB implements Closeable {
         }
 
         // 目录
-        String dirPath = np.endsWith("/") ? np : np + "/";
-        if (getStorage().isDirectory(dirPath)) {
-            try {
-                getStorage().deleteDirectory(dirPath, false);
-                return true;
-            } catch (SQLException e) {
-                throw new IOException("删除目录失败: " + e.getMessage(), e);
-            }
+        if (getStorage().isDirectory(np)) {
+            getStorage().deleteDirectory(np, false);
+            return true;
         }
         return false;
     }
@@ -430,13 +416,9 @@ public class VKB implements Closeable {
         }
 
         // 目录：递归删除
-        String dirPath = np.endsWith("/") ? np : np + "/";
-        if (getStorage().isDirectory(dirPath)) {
-            try {
-                getStorage().deleteDirectory(dirPath, true);
-            } catch (SQLException e) {
-                throw new IOException("递归删除目录失败: " + e.getMessage(), e);
-            }
+        if (getStorage().isDirectory(np)) {
+            getStorage().deleteDirectory(np, true);
+            kb.deleteIndexByPrefix(np);
         }
     }
 
@@ -446,7 +428,7 @@ public class VKB implements Closeable {
      * @param source  源文件路径
      * @param target  目标文件路径
      * @param options 可选的复制选项，支持 {@link StandardCopyOption#REPLACE_EXISTING}
-     * @throws NoSuchFileException                     源文件不存在时抛出
+     * @throws NoSuchFileException                      源文件不存在时抛出
      * @throws java.nio.file.FileAlreadyExistsException 目标已存在且未指定 REPLACE_EXISTING 时抛出
      */
     public void copy(String source, String target, CopyOption... options) throws IOException {
@@ -464,36 +446,27 @@ public class VKB implements Closeable {
         }
 
         Document existingTarget = getStorage().getDocumentByPath(nt);
-        if (existingTarget != null) {
-            if (!replace) {
-                throw new java.nio.file.FileAlreadyExistsException(nt);
-            }
-            kb.deleteDocument(existingTarget.getDocId());
+        if (existingTarget != null && !replace) {
+            throw new java.nio.file.FileAlreadyExistsException(nt);
         }
 
         kb.addDocument(extractFileName(nt), data, extractParentDir(nt), Collections.singletonList(text));
     }
 
     /**
-     * 移动/重命名文件。
+     * 移动/重命名文件或目录。
      *
-     * @param source  源文件路径
-     * @param target  目标文件路径
+     * @param source  源路径
+     * @param target  目标路径
      * @param options 可选的移动选项，支持 {@link StandardCopyOption#REPLACE_EXISTING}
      */
     public void move(String source, String target, CopyOption... options) throws IOException {
-        // 如果源是目录，走目录重命名逻辑
         String ns = normalizePath(source);
-        String sourceDir = ns.endsWith("/") ? ns : ns + "/";
-        if (getStorage().isDirectory(sourceDir) && getStorage().getDocumentByPath(ns) == null) {
-            // 源是目录
+        // 如果源是目录，走目录重命名逻辑
+        if (getStorage().isDirectory(ns) && getStorage().getDocumentByPath(ns) == null) {
             String nt = normalizePath(target);
-            String targetDir = nt.endsWith("/") ? nt : nt + "/";
-            try {
-                getStorage().renameDirectory(sourceDir, targetDir);
-            } catch (SQLException e) {
-                throw new IOException("移动目录失败: " + e.getMessage(), e);
-            }
+            getStorage().renameDirectory(ns, nt);
+            kb.reindexAfterDirMove(ns, nt);
             return;
         }
         // 源是文件，走文件复制+删除
@@ -519,13 +492,10 @@ public class VKB implements Closeable {
      * @param newPath 新目录路径，如 /docs/new/
      */
     public void renameDirectory(String oldPath, String newPath) throws IOException {
-        try {
-            getStorage().renameDirectory(
-                    normalizePath(oldPath) + "/",
-                    normalizePath(newPath) + "/");
-        } catch (SQLException e) {
-            throw new IOException("重命名目录失败: " + e.getMessage(), e);
-        }
+        String no = normalizePath(oldPath);
+        String nn = normalizePath(newPath);
+        getStorage().renameDirectory(no, nn);
+        kb.reindexAfterDirMove(no, nn);
     }
 
     /**
@@ -546,10 +516,9 @@ public class VKB implements Closeable {
      */
     public void deleteDirectory(String dirPath, boolean recursive) throws IOException {
         String np = normalizePath(dirPath);
-        try {
-            getStorage().deleteDirectory(np.endsWith("/") ? np : np + "/", recursive);
-        } catch (SQLException e) {
-            throw new IOException("删除目录失败: " + e.getMessage(), e);
+        getStorage().deleteDirectory(np, recursive);
+        if (recursive) {
+            kb.deleteIndexByPrefix(np);
         }
     }
 
@@ -573,23 +542,23 @@ public class VKB implements Closeable {
         return getStorage().getDirectory(normalizePath(dirPath) + "/");
     }
 
-    // ==================== 5. VKB 扩展能力（虚拟工作空间特有） ====================
+    // ==================== 5. 扩展能力（工作空间特有） ====================
 
     /**
-     * 添加文档（支持分段）—— VKB 特有能力，VFS 不具备
+     * 添加文档（支持分段）—— 工作空间特有能力
      *
      * @param fileName    原始文件名（如 report.pdf）
      * @param sourceBytes 源文件字节（可为 null）
-     * @param filePath    虚拟文件系统路径（如 /docs/report.md）
+     * @param filePath    目录路径（如 /docs/report.md）
      * @param textChunks  分段后的文本列表
-     * @return 文档ID
+     * @return 文档ID（即文件虚拟路径）
      */
     public String addDocument(String fileName, byte[] sourceBytes, String filePath, List<String> textChunks) {
         return kb.addDocument(fileName, sourceBytes, filePath, textChunks);
     }
 
     /**
-     * 搜索：返回相关文件列表 —— VKB 特有能力，VFS 不具备
+     * 搜索：返回相关文件列表 —— 工作空间特有能力
      *
      * @param query      查询关键词
      * @param resultSize 最大返回数量
@@ -600,7 +569,7 @@ public class VKB implements Closeable {
     }
 
     /**
-     * Grep 搜索（正则表达式）—— VKB 特有能力，VFS 不具备
+     * Grep 搜索（正则表达式）—— 工作空间特有能力
      *
      * @param regex      正则表达式
      * @param resultSize 最大返回数量
@@ -611,37 +580,93 @@ public class VKB implements Closeable {
     }
 
     /**
-     * 获取虚拟文件系统（NIO FileSystem）
+     * 获取文件系统（系统默认文件系统，真实磁盘）。
      */
     public FileSystem getFileSystem() {
         return kb.getFileSystem();
     }
 
     /**
-     * 获取虚拟工作空间统计信息
+     * 判断该工作空间是否已完成初始化（即磁盘存储目录已被实际创建）。
+     * <p>仅在首次真正写入/创建目录（上传）时才进行初始化；未初始化时返回 false。
+     * 此时路径仍可获取（但实际不存在于磁盘），统计视为无文件，搜索返回空。</p>
+     */
+    public boolean isInitialized() {
+        return kb.isInitialized();
+    }
+
+    /**
+     * 获取工作空间统计信息（含初始化状态与文件夹/文件数量）。
      */
     public KBInfo getInfo() {
         return kb.getInfo();
     }
 
+    // ==================== 文件存储扩展（真实磁盘路径） ====================
+
+    /**
+     * 将虚拟路径转换为磁盘真实路径（文件存储版特有的便捷方法）。
+     *
+     * @param virtualPath 虚拟路径，如 /docs/report.md
+     * @return 磁盘真实路径
+     */
+    public Path toRealPath(String virtualPath) {
+        return getStorage().toReal(normalizePath(virtualPath));
+    }
+
+    /**
+     * 获取存储根目录（对应虚拟路径 "/"）的磁盘真实路径。
+     */
+    public Path getStorageRoot() {
+        return getStorage().getStorageRoot();
+    }
+
+    // ==================== 三路径概念（虚拟 / 真实 / 映射）====================
+
+    /**
+     * 1. 虚拟根（Storage 虚拟路径的根）：恒为 "/"。
+     */
+    public String getVirtualRoot() {
+        return "/";
+    }
+
+    /**
+     * 2. 真实根：磁盘上 storage 目录的真实路径（等价于 {@link #getStorageRoot()}）。
+     */
+    public Path getRealStorageRoot() {
+        return getStorage().getStorageRoot();
+    }
+
+    /**
+     * 3. 映射根：mapDir 配置（如 /workspace）。未配置时返回 "/"（映射路径==虚拟路径）。
+     */
+    public String getMappedRoot() {
+        return getStorage().getMappedRoot();
+    }
+
+    /**
+     * 将虚拟路径转换为映射路径（mapDir + 虚拟路径）。
+     *
+     * <pre>
+     *   mapDir="/workspace", 虚拟路径="/data/a.txt"  =>  "/workspace/data/a.txt"
+     *   mapDir 未配置时，映射路径等于虚拟路径（恒等映射）。
+     * </pre>
+     *
+     * @param virtualPath 虚拟路径，如 /docs/report.md
+     * @return 映射路径
+     */
+    public String toMappedPath(String virtualPath) {
+        return getStorage().toMapped(normalizePath(virtualPath));
+    }
+
     // ==================== 内部工具 ====================
 
-    private SQLiteStorage getStorage() {
-        return kb.getSqliteStorage();
+    private FileStorage getStorage() {
+        return kb.getFileStorage();
     }
 
     private static String normalizePath(String path) {
-        if (path == null) {
-            return "/";
-        }
-        String normalized = path.replace("\\", "/");
-        if (!normalized.startsWith("/")) {
-            normalized = "/" + normalized;
-        }
-        if (normalized.endsWith("/") && normalized.length() > 1) {
-            normalized = normalized.substring(0, normalized.length() - 1);
-        }
-        return normalized;
+        return FileStorage.normalizeVirtual(path);
     }
 
     private static String extractFileName(String path) {

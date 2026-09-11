@@ -1,11 +1,14 @@
-package net.itzq.mira.modules.vkb.toolfun;
+package net.itzq.mira.modules.toolfun.vkb;
 
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.client.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.client.tool.annotation.ToolParam;
+import net.itzq.mira.modules.toolfun.ToolFun;
 import net.itzq.mira.modules.vkb.SessionKB;
+import net.itzq.mira.modules.vkb.VKB;
 import net.itzq.mira.modules.vkb.VKBConstants;
 import net.itzq.mira.modules.vkb.model.SearchResult;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,24 +23,26 @@ public class VkbSearchTool {
 
     private static final Logger log = LoggerFactory.getLogger(VkbSearchTool.class);
 
-    @Tool(name = VKBConstants.TOOL_SEARCH,
-            description = "在知识库中搜索相关文件。\n\n"
-                    + "使用说明：\n"
-                    + "- 返回与查询相关的文件列表（文件路径 + 相似度）\n"
-                    + "- 使用向量搜索定位相关文件\n"
-                    + "- 返回文件路径后，可用 vkb_grep 或 vkb_file_read 获取具体内容\n"
-                    + "- 适合先定位文件，再精确查找答案")
-    public String search(
-            @ToolParam(description = "查询关键词（必填）") String query,
-            AgentContextHolder contextHolder) {
+    @Tool(name = ToolFun.TOOL_VKB_SEARCH,
+          description = "在“工作空间”中搜索相关文件。\n\n"
+                  + "使用说明：\n"
+                  + "- 返回与查询相关的文件列表（文件路径 + 相似度）\n"
+                  + "- 使用向量搜索定位相关文件\n"
+                  + "- 返回文件路径后，可用 vkb_grep 或 vkb_file_read 获取具体内容\n"
+                  + "- 适合先定位文件，再精确查找答案")
+    public String search(@ToolParam(description = "查询关键词（必填）") String query, AgentContextHolder contextHolder) {
 
-        try {
-            SessionKB kb = getSessionKB(contextHolder);
-            if (kb == null) {
-                return "错误: 知识库未初始化";
-            }
+        String sessionId = (String) contextHolder.getTopTempVariables().get(VKBConstants.VAR_SESSION_KB);
+        if (StringUtils.isBlank(sessionId)) {
+            sessionId = contextHolder.getHistoryId();
+        }
+        if (StringUtils.isBlank(sessionId)) {
+            return "错误: “工作空间”未初始化";
+        }
 
-            List<SearchResult> results = kb.search(query,10);
+        try (VKB kb = VKB.load(sessionId)) {
+
+            List<SearchResult> results = kb.search(query, 10);
 
             if (results.isEmpty()) {
                 return "未找到与 '" + query + "' 相关的文件";
