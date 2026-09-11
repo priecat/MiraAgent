@@ -275,7 +275,7 @@ public abstract class DefaultEventListener implements EventListener, IEmitter {
 
     // ====================== 私有辅助方法 ======================
 
-    private void saveEvtCallback(AgentContextHolder context) {
+    protected void saveEvtCallback(AgentContextHolder context) {
         AbstractHistoryPersist historyPersist = context.getTopAgent().getHistoryPersist();
         if (historyPersist != null) {
             List<AnsResponse> toSave = new ArrayList<>();

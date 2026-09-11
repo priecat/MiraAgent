@@ -6,7 +6,7 @@
 
     <groupId>net.itzq.mira</groupId>
     <artifactId>qai-agent-minified</artifactId>
-    <version>0.0.2-SNAPSHOT</version>
+    <version>0.0.3-SNAPSHOT</version>
 
     <!-- 设定仓库 -->
     <repositories>
