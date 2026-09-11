@@ -1,4 +1,4 @@
-package net.itzq.mira.modules.ai.openapi;
+package net.itzq.mira.modules.ai.http;
 
 import cn.hutool.core.net.url.UrlBuilder;
 import cn.hutool.http.HttpRequest;
@@ -16,7 +16,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 
-public class OpenApiInvoker {
+/**
+ * HTTP 工具执行器：按 HttpToolMeta 定义把模型传入的参数组装为真实 HTTP 请求并执行。
+ */
+public class HttpToolInvoker {
 
     private static volatile Supplier<Map<String, String>> globalHeaderProvider;
     private static volatile int defaultTimeoutMs = 10000;
@@ -34,17 +37,17 @@ public class OpenApiInvoker {
         defaultMaxBytes = bytes;
     }
 
-    public String execute(JSONObject args, AgentContextHolder contextHolder, ApiOperation apiOperation) {
-        if (apiOperation == null) {
+    public String execute(JSONObject args, AgentContextHolder contextHolder, HttpToolMeta meta) {
+        if (meta == null) {
             JSONObject rtn = new JSONObject();
             rtn.put("error", "工具元数据缺失");
             return rtn.toJSONString();
         }
 
-        return invoke(apiOperation, args, contextHolder);
+        return invoke(meta, args, contextHolder);
     }
 
-    protected static String invoke(ApiOperation op, JSONObject args, AgentContextHolder contextHolder) {
+    protected static String invoke(HttpToolMeta op, JSONObject args, AgentContextHolder contextHolder) {
         if (args == null) {
             args = new JSONObject();
         }
@@ -104,12 +107,12 @@ public class OpenApiInvoker {
             UrlBuilder urlBuilder = UrlBuilder.ofHttpWithoutEncode(fullUrl);
 
             // 4. 分离参数：QUERY / HEADER / BODY (JSON) / FORM (UrlEncoded)
-            List<ApiParam> bodyParams = new ArrayList<>();
-            List<ApiParam> formParams = new ArrayList<>();
+            List<HttpParam> bodyParams = new ArrayList<>();
+            List<HttpParam> formParams = new ArrayList<>();
 
             if (op.getParams() != null) {
-                for (ApiParam p : op.getParams()) {
-                    if (p.getIn() == ApiParam.In.PATH) {
+                for (HttpParam p : op.getParams()) {
+                    if (p.getIn() == HttpParam.In.PATH) {
                         continue;
                     }
                     Object val = args.get(p.getName());
@@ -141,11 +144,13 @@ public class OpenApiInvoker {
                 }
             }
 
+            int timeout = op.getTimeoutMs() > 0 ? op.getTimeoutMs() : defaultTimeoutMs;
+
             // 构建 Hutool HttpRequest
             HttpRequest req = HttpRequest.of(urlBuilder.build())
                     .method(method)
-                    .setConnectionTimeout(defaultTimeoutMs)
-                    .setReadTimeout(defaultTimeoutMs);
+                    .setConnectionTimeout(timeout)
+                    .setReadTimeout(timeout);
 
             // 应用所有收集到的 Header
             for (Map.Entry<String, String> e : headers.entrySet()) {
@@ -156,11 +161,11 @@ public class OpenApiInvoker {
             if (!bodyParams.isEmpty()) {
                 Object bodyPayload;
                 if (bodyParams.size() == 1) {
-                    ApiParam p = bodyParams.get(0);
+                    HttpParam p = bodyParams.get(0);
                     bodyPayload = args.get(p.getName());
                 } else {
                     JSONObject bodyObj = new JSONObject();
-                    for (ApiParam p : bodyParams) {
+                    for (HttpParam p : bodyParams) {
                         Object val = args.get(p.getName());
                         if (val != null) {
                             bodyObj.put(p.getName(), val);
@@ -182,7 +187,7 @@ public class OpenApiInvoker {
             // 6. 处理 FORM (x-www-form-urlencoded)
             // Hutool 在调用 form 时会自动设置 Content-Type: application/x-www-form-urlencoded
             if (!formParams.isEmpty()) {
-                for (ApiParam p : formParams) {
+                for (HttpParam p : formParams) {
                     Object val = args.get(p.getName());
                     if (val != null) {
                         if (val instanceof Iterable) {
@@ -197,8 +202,9 @@ public class OpenApiInvoker {
             }
 
             // 执行请求并处理响应
+            int maxBytes = op.getMaxResponseBytes() > 0 ? op.getMaxResponseBytes() : defaultMaxBytes;
             try (HttpResponse resp = req.execute()) {
-                return normalize(resp);
+                return normalize(resp, maxBytes);
             }
         } catch (Exception e) {
             JSONObject rtn = new JSONObject();
@@ -222,11 +228,11 @@ public class OpenApiInvoker {
         return sb.toString();
     }
 
-    private static String normalize(HttpResponse resp) {
+    private static String normalize(HttpResponse resp, int maxBytes) {
         int status = resp.getStatus();
         String bodyStr = resp.body();
-        if (bodyStr != null && bodyStr.length() > defaultMaxBytes) {
-            bodyStr = bodyStr.substring(0, defaultMaxBytes) + "...(truncated)";
+        if (bodyStr != null && bodyStr.length() > maxBytes) {
+            bodyStr = bodyStr.substring(0, maxBytes) + "...(truncated)";
         }
         JSONObject out = new JSONObject();
         out.put("status", status);

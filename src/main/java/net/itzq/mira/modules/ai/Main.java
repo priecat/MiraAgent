@@ -14,8 +14,8 @@ import net.itzq.mira.modules.ai.client.handle.ApiRequestParams;
 import net.itzq.mira.modules.ai.client.handle.OpenAICompatibleStreamEventHandler;
 import net.itzq.mira.modules.ai.client.openai.chat.entity.ChatMessage;
 import net.itzq.mira.modules.ai.client.openai.tool.ToolCall;
-import net.itzq.mira.modules.ai.client.tool.FCUtil;
-import net.itzq.mira.modules.ai.client.tool.annotation.ToolParam;
+import net.itzq.mira.modules.ai.tool.FCUtil;
+import net.itzq.mira.modules.ai.tool.annotation.ToolParam;
 import net.itzq.mira.modules.ai.persistence.AbstractHistoryPersist;
 
 import java.util.Arrays;

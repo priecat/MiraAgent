@@ -8,7 +8,7 @@ import net.itzq.mira.modules.ai.client.openai.tool.Tool;
 import net.itzq.mira.modules.ai.client.openai.tool.ToolCall;
 import net.itzq.mira.modules.ai.client.sse.IEmitter;
 import net.itzq.mira.modules.ai.client.sse.SseException;
-import net.itzq.mira.modules.ai.client.tool.FCUtil;
+import net.itzq.mira.modules.ai.tool.FCUtil;
 import net.itzq.mira.modules.ai.entity.chat.AnsResponse;
 import net.itzq.mira.modules.ai.entity.chat.AnsType;
 import net.itzq.mira.modules.ai.entity.chat.ReplyId;

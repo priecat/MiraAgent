@@ -2,10 +2,9 @@ package net.itzq.mira.modules.toolfun.explorer;
 
 import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
-import net.itzq.mira.modules.ai.client.tool.annotation.Tool;
-import net.itzq.mira.modules.ai.client.tool.annotation.ToolParam;
+import net.itzq.mira.modules.ai.tool.annotation.Tool;
+import net.itzq.mira.modules.ai.tool.annotation.ToolParam;
 import net.itzq.mira.modules.toolfun.ToolFun;
-import net.itzq.mira.modules.workspace.FileWorkspace;
 import org.apache.commons.lang3.StringUtils;
 
 import java.nio.file.*;
@@ -155,12 +154,6 @@ public class ListFilesTool {
     static String resolvePath(String path, AgentContextHolder contextHolder) {
         if (StringUtils.isNotBlank(path)) {
             return path;
-        }
-        if (contextHolder != null && StringUtils.isNotBlank(contextHolder.getWorkspaceId())) {
-            try (FileWorkspace wk = FileWorkspace.load(contextHolder.getWorkspaceId())) {
-                return wk.getStorageRoot().toString();
-            } catch (Exception ignored) {
-            }
         }
         return null;
     }

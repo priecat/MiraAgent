@@ -2,8 +2,8 @@ package net.itzq.mira.modules.toolfun.skills;
 
 import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
-import net.itzq.mira.modules.ai.client.tool.annotation.Tool;
-import net.itzq.mira.modules.ai.client.tool.annotation.ToolParam;
+import net.itzq.mira.modules.ai.tool.annotation.Tool;
+import net.itzq.mira.modules.ai.tool.annotation.ToolParam;
 import net.itzq.mira.modules.ai.skills.SkillBundle;
 import net.itzq.mira.modules.ai.skills.SkillEntity;
 import net.itzq.mira.modules.ai.skills.SkillManager;

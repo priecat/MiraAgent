@@ -68,7 +68,7 @@ public class AgentContextHolder {
 
     EventHook eventHook;
 
-    String workspaceId;
+    String workspacePath;
 
     String vfsId;
 
@@ -137,11 +137,11 @@ public class AgentContextHolder {
     /**
      * 获取顶层 Agent 的 Workspace
      */
-    public String getTopWorkspaceId() {
+    public String getTopWorkspacePath() {
         if (getTopAgent() != null) {
-            return getTopAgent().getContextHolder().getWorkspaceId();
+            return getTopAgent().getContextHolder().getWorkspacePath();
         }
-        return getWorkspaceId();
+        return getWorkspacePath();
     }
 
     public String getTopVfsId() {

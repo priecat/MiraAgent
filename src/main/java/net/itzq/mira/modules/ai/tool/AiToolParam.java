@@ -1,4 +1,4 @@
-package net.itzq.mira.modules.ai.client.tool;
+package net.itzq.mira.modules.ai.tool;
 
 import lombok.Data;
 

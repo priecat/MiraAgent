@@ -1,20 +1,23 @@
-package net.itzq.mira.modules.ai.openapi;
+package net.itzq.mira.modules.ai.http;
 
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class OpenApiRegistry {
+/**
+ * HTTP 工具元数据注册表（内存态，进程重启后需重新注册）。
+ */
+public class HttpToolRegistry {
 
-    private static final Map<String, ApiOperation> REGISTRY = new ConcurrentHashMap<>();
+    private static final Map<String, HttpToolMeta> REGISTRY = new ConcurrentHashMap<>();
 
-    public static void register(ApiOperation op) {
-        if (op != null && op.getName() != null) {
-            REGISTRY.put(op.getName(), op);
+    public static void register(HttpToolMeta meta) {
+        if (meta != null && meta.getName() != null) {
+            REGISTRY.put(meta.getName(), meta);
         }
     }
 
-    public static ApiOperation get(String name) {
+    public static HttpToolMeta get(String name) {
         return REGISTRY.get(name);
     }
 

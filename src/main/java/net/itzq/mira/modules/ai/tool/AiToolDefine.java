@@ -1,10 +1,6 @@
-package net.itzq.mira.modules.ai.client.tool;
-
-import com.alibaba.fastjson2.JSONObject;
-import net.itzq.mira.modules.ai.agent.AgentContextHolder;
+package net.itzq.mira.modules.ai.tool;
 
 import java.lang.reflect.Method;
-import java.util.Collections;
 import java.util.List;
 
 /**

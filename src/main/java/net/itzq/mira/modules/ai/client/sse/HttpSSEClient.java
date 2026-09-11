@@ -1,5 +1,6 @@
 package net.itzq.mira.modules.ai.client.sse;
 
+import cn.hutool.core.io.resource.BytesResource;
 import cn.hutool.http.HttpRequest;
 import cn.hutool.http.HttpResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -11,6 +12,7 @@ import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -222,6 +224,98 @@ public class HttpSSEClient {
         }
     }
 
+    // ==================== 同步请求（结构化响应：状态码 + 文本/二进制体） ====================
+
+    /**
+     * 同步POST请求（JSON格式，带请求头），返回结构化响应（携带 HTTP 状态码与原始响应体）
+     * <p>非 2xx 不抛异常，由调用方依据 {@link HttpResp#getStatus()} 判定。</p>
+     *
+     * @param url      请求URL
+     * @param jsonBody JSON请求体
+     * @param headers  请求头
+     * @return HttpResp（status + bodyUtf8 + contentType）
+     */
+    public HttpResp postJsonSyncDetailed(String url, String jsonBody, Map<String, String> headers) {
+        try {
+            HttpRequest request = HttpRequest.post(url)
+                    .setConnectionTimeout(connectTimeoutMs)
+                    .setReadTimeout(readTimeoutMs)
+                    .header("Content-Type", "application/json")
+                    .body(jsonBody);
+            addHeaders(request, headers);
+            try (HttpResponse response = request.execute()) {
+                return handleResponseDetailed(response, false);
+            }
+        } catch (Exception e) {
+            log.error("同步POST请求失败: {}", e.getMessage(), e);
+            throw new RuntimeException("同步POST请求失败:" + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 同步POST请求（JSON格式，带请求头），返回二进制响应（audio/speech 等端点）
+     *
+     * @param url      请求URL
+     * @param jsonBody JSON请求体
+     * @param headers  请求头
+     * @return HttpResp（status + bodyBytes + contentType）
+     */
+    public HttpResp postJsonSyncBytes(String url, String jsonBody, Map<String, String> headers) {
+        try {
+            HttpRequest request = HttpRequest.post(url)
+                    .setConnectionTimeout(connectTimeoutMs)
+                    .setReadTimeout(readTimeoutMs)
+                    .header("Content-Type", "application/json")
+                    .body(jsonBody);
+            addHeaders(request, headers);
+            try (HttpResponse response = request.execute()) {
+                return handleResponseDetailed(response, true);
+            }
+        } catch (Exception e) {
+            log.error("同步POST(二进制)请求失败: {}", e.getMessage(), e);
+            throw new RuntimeException("同步POST(二进制)请求失败:" + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 同步POST multipart/form-data 请求（文件上传，内存零落盘）
+     * <p>普通字段用 {@code FormPart.field(...)}；文件字段用 {@code FormPart.file(...)}（BytesResource）。</p>
+     *
+     * @param url     请求URL
+     * @param parts   表单部件列表
+     * @param headers 附加请求头
+     * @return HttpResp（status + bodyUtf8）
+     */
+    public HttpResp postMultipartSync(String url, List<FormPart> parts, Map<String, String> headers) {
+        try {
+            HttpRequest request = HttpRequest.post(url)
+                    .setConnectionTimeout(connectTimeoutMs)
+                    .setReadTimeout(readTimeoutMs);
+            if (parts != null) {
+                for (FormPart part : parts) {
+                    if (part == null || part.getName() == null) {
+                        continue;
+                    }
+                    if (part.getFileBytes() != null) {
+                        // 文件部分：内存资源上传，避免落盘
+                        BytesResource resource = new BytesResource(part.getFileBytes(),
+                                part.getFilename() == null ? "file" : part.getFilename());
+                        request.form(part.getName(), resource);
+                    } else {
+                        request.form(part.getName(), part.getValue() == null ? "" : part.getValue());
+                    }
+                }
+            }
+            addHeaders(request, headers);
+            try (HttpResponse response = request.execute()) {
+                return handleResponseDetailed(response, false);
+            }
+        } catch (Exception e) {
+            log.error("同步POST multipart 请求失败: {}", e.getMessage(), e);
+            throw new RuntimeException("同步POST multipart 请求失败:" + e.getMessage(), e);
+        }
+    }
+
     // ==================== 辅助方法 ====================
 
     /**
@@ -244,6 +338,25 @@ public class HttpSSEClient {
             log.error("错误响应内容: {}", body);
         }
         return body;
+    }
+
+    /**
+     * 处理响应（结构化：状态码 + 文本/二进制体）
+     *
+     * @param response   Hutool 响应
+     * @param asBytes    true 取二进制体（audio 等端点）；false 取 UTF-8 文本体
+     * @return HttpResp
+     */
+    private HttpResp handleResponseDetailed(HttpResponse response, boolean asBytes) {
+        int status = response.getStatus();
+        String contentType = response.header("Content-Type");
+        if (status < 200 || status >= 300) {
+            log.error("HTTP请求返回错误状态码: {}", status);
+        }
+        if (asBytes) {
+            return new HttpResp(status, response.bodyBytes(), contentType);
+        }
+        return new HttpResp(status, response.body(), contentType);
     }
 
     // ==================== SSE 请求方法 ====================
@@ -411,10 +524,11 @@ public class HttpSSEClient {
             log.info("SSE请求响应状态 - URL: {}, 状态码: {}", uri, statusCode);
 
             if (statusCode < 200 || statusCode >= 300) {
-                // 非 2xx：读取完整错误响应体并触发 onError
+                // 非 2xx：读取完整错误响应体并触发 onError（SseException 结构化携带状态码，message 保持原格式以兼容旧调用方）
                 String body = response.body();
                 log.error("SSE请求最终失败，URL: {}, 状态码: {}, 响应内容: {}", uri, statusCode, body);
-                eventHandler.onError(new RuntimeException(String.format("SSE请求失败，状态码: %s, 响应体: %s", statusCode, body)));
+                String errMsg = String.format("SSE请求失败，状态码: %s, 响应体: %s", statusCode, body);
+                eventHandler.onError(new SseException(statusCode, String.valueOf(statusCode), errMsg, body));
                 return;
             }
 

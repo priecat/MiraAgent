@@ -7,7 +7,7 @@ import net.itzq.mira.modules.ai.client.config.IApiReqParamsCallback;
 import net.itzq.mira.modules.ai.client.config.ModelApiConfig;
 import net.itzq.mira.modules.ai.client.sse.HttpSSEClient;
 import net.itzq.mira.modules.ai.client.sse.SseException;
-import net.itzq.mira.modules.ai.client.tool.FCUtil;
+import net.itzq.mira.modules.ai.tool.FCUtil;
 import net.itzq.mira.modules.ai.client.openai.tool.Tool;
 import org.apache.commons.lang3.StringUtils;
 

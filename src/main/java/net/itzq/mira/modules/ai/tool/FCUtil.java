@@ -1,13 +1,13 @@
-package net.itzq.mira.modules.ai.client.tool;
+package net.itzq.mira.modules.ai.tool;
 
 import com.alibaba.fastjson2.JSONObject;
 import io.github.classgraph.*;
 import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.client.openai.tool.Tool;
-import net.itzq.mira.modules.ai.client.tool.annotation.ToolParam;
-import net.itzq.mira.modules.ai.openapi.ApiOperation;
-import net.itzq.mira.modules.ai.openapi.OpenApiRegistry;
+import net.itzq.mira.modules.ai.tool.annotation.ToolParam;
+import net.itzq.mira.modules.ai.http.HttpToolMeta;
+import net.itzq.mira.modules.ai.http.HttpToolRegistry;
 import net.itzq.mira.modules.ai.utils.JsonRepair;
 import net.itzq.mira.modules.toolfun.ToolFun;
 
@@ -96,8 +96,8 @@ public class FCUtil {
      * @return 构建好的 Tool 实体；方法无 @Tool 注解时返回 null
      */
     private static Tool buildToolEntityFromMethod(Method method) {
-        net.itzq.mira.modules.ai.client.tool.annotation.Tool toolAnnotation =
-                method.getAnnotation(net.itzq.mira.modules.ai.client.tool.annotation.Tool.class);
+        net.itzq.mira.modules.ai.tool.annotation.Tool toolAnnotation =
+                method.getAnnotation(net.itzq.mira.modules.ai.tool.annotation.Tool.class);
         if (toolAnnotation == null) {
             return null;
         }
@@ -133,8 +133,8 @@ public class FCUtil {
                 continue;
             }
             for (Method method : clazz.getDeclaredMethods()) {
-                net.itzq.mira.modules.ai.client.tool.annotation.Tool toolAnnotation =
-                        method.getAnnotation(net.itzq.mira.modules.ai.client.tool.annotation.Tool.class);
+                net.itzq.mira.modules.ai.tool.annotation.Tool toolAnnotation =
+                        method.getAnnotation(net.itzq.mira.modules.ai.tool.annotation.Tool.class);
                 if (toolAnnotation == null) {
                     continue;
                 }
@@ -167,7 +167,7 @@ public class FCUtil {
 
             // 1. 获取所有包含带有 @Tool 注解方法的类
             ClassInfoList classInfoList =
-                    scanResult.getClassesWithMethodAnnotation(net.itzq.mira.modules.ai.client.tool.annotation.Tool.class
+                    scanResult.getClassesWithMethodAnnotation(net.itzq.mira.modules.ai.tool.annotation.Tool.class
                     .getName());
 
             for (ClassInfo classInfo : classInfoList) {
@@ -176,7 +176,7 @@ public class FCUtil {
 
                     // 3. 检查该方法是否确实带有 @Tool 注解
                     AnnotationInfo toolAnnotationInfo =
-                            methodInfo.getAnnotationInfo(net.itzq.mira.modules.ai.client.tool.annotation.Tool.class
+                            methodInfo.getAnnotationInfo(net.itzq.mira.modules.ai.tool.annotation.Tool.class
                             .getName());
 
                     if (toolAnnotationInfo != null) {
@@ -185,8 +185,8 @@ public class FCUtil {
                             Method method = methodInfo.loadClassAndGetMethod();
 
                             // 获取原生的注解对象，方便读取 name() 等属性
-                            net.itzq.mira.modules.ai.client.tool.annotation.Tool toolAnnotation = method.getAnnotation(
-                                    net.itzq.mira.modules.ai.client.tool.annotation.Tool.class);
+                            net.itzq.mira.modules.ai.tool.annotation.Tool toolAnnotation = method.getAnnotation(
+                                    net.itzq.mira.modules.ai.tool.annotation.Tool.class);
 
                             if (toolAnnotation != null) {
                                 String functionName = toolAnnotation.name();
@@ -246,23 +246,23 @@ public class FCUtil {
             Class<?>[] parameterTypes = method.getParameterTypes();
             Parameter[] parameters = method.getParameters();
 
-            boolean isOpenApiTool = false;
+            boolean isHttpTool = false;
 
             for (int i = 0; i < method.getParameterCount(); i++) {
                 Class<?> parameterType = parameterTypes[i];
-                if (parameterType == ApiOperation.class) {
-                    isOpenApiTool = true;
+                if (parameterType == HttpToolMeta.class) {
+                    isHttpTool = true;
                     break;
                 }
             }
 
-            if (isOpenApiTool) {
+            if (isHttpTool) {
 
-                ApiOperation apiOperation = OpenApiRegistry.get(functionName);
+                HttpToolMeta httpToolMeta = HttpToolRegistry.get(functionName);
 
                 invokeParams.add(args);
                 invokeParams.add(contextHolder);
-                invokeParams.add(apiOperation);
+                invokeParams.add(httpToolMeta);
 
             } else {
 
@@ -428,7 +428,16 @@ public class FCUtil {
     }
 
     /**
-     * 按前缀批量卸载工具（用于 OpenAPI 导入的 namespace 清理）
+     * 卸载单个工具
+     */
+    public static synchronized void unregisterTool(String functionName) {
+        toolMethodMap.remove(functionName);
+        toolEntityMap.remove(functionName);
+        log.info("【AiTool】卸载工具: {}", functionName);
+    }
+
+    /**
+     * 按前缀批量卸载工具（用于 HTTP 工具批量清理）
      */
     public static synchronized void unregisterByPrefix(String prefix) {
         toolMethodMap.keySet().removeIf(k -> k != null && k.startsWith(prefix));

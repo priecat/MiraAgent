@@ -1,4 +1,4 @@
-package net.itzq.mira.modules.ai.client.tool.annotation;
+package net.itzq.mira.modules.ai.tool.annotation;
 
 import java.lang.annotation.*;
 

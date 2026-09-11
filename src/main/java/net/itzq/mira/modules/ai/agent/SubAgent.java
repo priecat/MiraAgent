@@ -1,11 +1,8 @@
 package net.itzq.mira.modules.ai.agent;
 
 import lombok.extern.slf4j.Slf4j;
-import net.itzq.mira.core.utils.PropsMap;
-import net.itzq.mira.core.utils.PromptLoader;
 import net.itzq.mira.modules.ai.client.openai.chat.entity.ChatMessage;
-import net.itzq.mira.modules.ai.client.tool.FCUtil;
-import org.apache.commons.lang3.StringUtils;
+import net.itzq.mira.modules.ai.tool.FCUtil;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -71,8 +68,8 @@ public class SubAgent extends BasicAgent {
             builder.topAgent(parentContext.getTopAgent());
             // 继承模型配置
             builder.modelAlias(parentContext.getModelAlias());
-            // 继承workspaceId
-            builder.workspaceId(parentContext.getTopWorkspaceId());
+            // 继承workspacePath
+            builder.workspacePath(parentContext.getTopWorkspacePath());
             // 继承事件中心（用于事件传递）
             builder.eventCenter(parentContext.getEventCenter());
             builder.eventHook(parentContext.getEventHook());

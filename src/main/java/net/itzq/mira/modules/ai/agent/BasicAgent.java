@@ -23,7 +23,7 @@ import net.itzq.mira.modules.ai.client.openai.chat.entity.Content;
 import net.itzq.mira.modules.ai.client.openai.chat.enums.ChatMessageType;
 import net.itzq.mira.modules.ai.client.openai.tool.Tool;
 import net.itzq.mira.modules.ai.client.openai.tool.ToolCall;
-import net.itzq.mira.modules.ai.client.tool.FCUtil;
+import net.itzq.mira.modules.ai.tool.FCUtil;
 import net.itzq.mira.modules.ai.entity.chat.ReplyId;
 import net.itzq.mira.modules.ai.persistence.AbstractHistoryPersist;
 import net.itzq.mira.modules.ai.utils.ThreadPoolUtil;

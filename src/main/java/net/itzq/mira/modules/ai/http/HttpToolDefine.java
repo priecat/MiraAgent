@@ -1,26 +1,29 @@
-package net.itzq.mira.modules.ai.openapi;
+package net.itzq.mira.modules.ai.http;
 
 import com.alibaba.fastjson2.JSONObject;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
-import net.itzq.mira.modules.ai.client.tool.AiToolDefine;
-import net.itzq.mira.modules.ai.client.tool.AiToolParam;
+import net.itzq.mira.modules.ai.tool.AiToolDefine;
+import net.itzq.mira.modules.ai.tool.AiToolParam;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
-public class OpenApiToolDefine implements AiToolDefine {
+/**
+ * 把 HttpToolMeta 适配为统一的 AiToolDefine 工具定义，供 FCUtil 注册与调用。
+ */
+public class HttpToolDefine implements AiToolDefine {
 
     private static final Method EXECUTE_METHOD;
 
     static {
         try {
-            EXECUTE_METHOD = OpenApiInvoker.class.getMethod("execute",
+            EXECUTE_METHOD = HttpToolInvoker.class.getMethod("execute",
                     JSONObject.class,
                     AgentContextHolder.class,
-                    ApiOperation.class);
+                    HttpToolMeta.class);
         } catch (NoSuchMethodException e) {
-            throw new RuntimeException("无法获取 OpenApiToolExecutor.execute 方法", e);
+            throw new RuntimeException("无法获取 HttpToolInvoker.execute 方法", e);
         }
     }
 
@@ -29,40 +32,40 @@ public class OpenApiToolDefine implements AiToolDefine {
     private final String description;
     private final List<AiToolParam> parameters;
 
-    /** 对应的 API 操作定义（供注册到 OpenApiRegistry 使用） */
-    private final ApiOperation operation;
+    /** 对应的 HTTP 工具元数据（供注册到 HttpToolRegistry 使用） */
+    private final HttpToolMeta meta;
 
-    public OpenApiToolDefine(ApiOperation op) {
-        this.operation = op;
-        this.name = op.getName();
-        this.display = op.getName();
+    public HttpToolDefine(HttpToolMeta meta) {
+        this.meta = meta;
+        this.name = meta.getName();
+        this.display = meta.getName();
         StringBuilder desc = new StringBuilder();
-        if (op.getSummary() != null) {
-            desc.append(op.getSummary());
+        if (meta.getSummary() != null) {
+            desc.append(meta.getSummary());
         }
-        if (op.getDescription() != null && !op.getDescription().isEmpty()) {
+        if (meta.getDescription() != null && !meta.getDescription().isEmpty()) {
             if (desc.length() > 0) {
                 desc.append("\n");
             }
-            desc.append(op.getDescription());
+            desc.append(meta.getDescription());
         }
         this.description = desc.toString();
-        this.parameters = toAiToolParams(op.getParams());
+        this.parameters = toAiToolParams(meta.getParams());
     }
 
-    private static List<AiToolParam> toAiToolParams(List<ApiParam> params) {
+    private static List<AiToolParam> toAiToolParams(List<HttpParam> params) {
         List<AiToolParam> list = new ArrayList<>();
         if (params == null) {
             return list;
         }
-        for (ApiParam p : params) {
-            list.add(AiToolParam.of(p.getName(), p.getDescription(), p.isRequired(), p.getType()));
+        for (HttpParam p : params) {
+            list.add(AiToolParam.of(p.getName(), p.getDescription(), p.isRequired(), p.typeClass()));
         }
         return list;
     }
 
-    public ApiOperation getOperation() {
-        return operation;
+    public HttpToolMeta getMeta() {
+        return meta;
     }
 
     @Override
