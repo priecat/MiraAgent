@@ -14,7 +14,8 @@ import java.util.List;
  */
 @Data
 @Builder
-@NoArgsConstructor(access = AccessLevel.PRIVATE)
+// protected（而非 private）：允许持久化包装子类（PersistedMessage）继承——
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.NON_NULL)

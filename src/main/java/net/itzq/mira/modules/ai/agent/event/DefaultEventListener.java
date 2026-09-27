@@ -84,6 +84,10 @@ public abstract class DefaultEventListener implements EventListener, IEmitter {
 
         JSONObject info = new JSONObject();
         info.put("question", question);
+        // 图片总是随 UserInput 事件持久化并下发前端渲染（发给 LLM 与否由归一化按模型能力决定）
+        if (event.getImages() != null && !event.getImages().isEmpty()) {
+            info.put("images", event.getImages());
+        }
         ans.setInfo(info);
         ans.setType(AnsType.UserInput.toString());
 
@@ -213,6 +217,9 @@ public abstract class DefaultEventListener implements EventListener, IEmitter {
                 info.put("toolName", "工具");
                 info.put("funName", "tool");
             }
+            // toolCall 的原始 id（OpenAI 协议的 call_xxx）：与 toolId（展示用合成 id）
+            // 不同——外部系统按断点回填 tool result 时（如挂起恢复）必须用它定位
+            info.put("toolCallId", toolCall.getId());
         }
         info.put("toolId", toolId);
         ans.setInfo(info);
@@ -256,6 +263,8 @@ public abstract class DefaultEventListener implements EventListener, IEmitter {
                 info.put("toolName", "工具");
                 info.put("funName", "tool");
             }
+            // 与 onCallToolBegin 一致：携带 toolCall 原始 id（见此处 begin 的注释）
+            info.put("toolCallId", toolCall.getId());
         }
         info.put("toolId", toolId);
         ans.setInfo(info);

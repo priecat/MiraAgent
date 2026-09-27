@@ -78,6 +78,15 @@ public class AgentContextHolder {
     @Builder.Default
     List<String> activeSkillSlugs = new ArrayList<>();  // 本次对话可用的技能slug列表
 
+    /**
+     * hook 挂起标志：工具调用被 {@link EventHook#onBeforeToolCall} 拦截且结果未定时置位，
+     * 对话循环立即中断并保留断点（history 尾部停在 assistant.tool_calls），
+     * 等待外部把结果追加进上下文后调 chatStreamResume/chatSyncResume 续行。
+     * 新建 contextHolder（续行/新对话）时自动复位为 false。
+     */
+    @Builder.Default
+    volatile boolean suspended = false;
+
     public void addHistory(ChatMessage message) {
         getHistory().add(message);
     }

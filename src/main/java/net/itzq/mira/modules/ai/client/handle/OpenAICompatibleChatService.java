@@ -34,6 +34,11 @@ public class OpenAICompatibleChatService {
         this.httpSSEClient = HttpSSEClient.getInstance();
     }
 
+    /** 模型注册配置（含视觉能力声明等） */
+    public ModelApiConfig getConfig() {
+        return config;
+    }
+
     public String sendChat(String question) throws Exception {
         List<ChatMessage> chatMessages = Arrays.asList(ChatMessage.withUser(question));
         return sendChat(chatMessages);

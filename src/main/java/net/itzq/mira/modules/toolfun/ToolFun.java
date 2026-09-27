@@ -30,6 +30,7 @@ public class ToolFun {
     // ==================== skill 工具名 ====================
     public static final String TOOL_USE_SKILL = "use_skill";
     public static final String TOOL_READ_SKILL_FILE = "read_skill_file";
+    public static final String TOOL_EXPAND_SKILL = "expand_skill";
 
     // ==================== skill 工具名 ====================
     public static final String TOOL_MCP_CALL = "mcp_call";

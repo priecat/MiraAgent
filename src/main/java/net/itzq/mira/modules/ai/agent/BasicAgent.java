@@ -12,6 +12,7 @@ import net.itzq.mira.core.utils.IdGen;
 import net.itzq.mira.core.utils.JsonMapper;
 import net.itzq.mira.modules.ai.agent.event.EventCenter;
 import net.itzq.mira.modules.ai.agent.event.EventHook;
+import net.itzq.mira.modules.ai.agent.event.HookResult;
 import net.itzq.mira.modules.ai.agent.event.type.*;
 import net.itzq.mira.modules.ai.client.config.ApiProviderManage;
 import net.itzq.mira.modules.ai.client.handle.ApiRequestParams;
@@ -26,6 +27,7 @@ import net.itzq.mira.modules.ai.client.openai.tool.ToolCall;
 import net.itzq.mira.modules.ai.tool.FCUtil;
 import net.itzq.mira.modules.ai.entity.chat.ReplyId;
 import net.itzq.mira.modules.ai.persistence.AbstractHistoryPersist;
+import net.itzq.mira.modules.ai.persistence.PersistedMessage;
 import net.itzq.mira.modules.ai.utils.ThreadPoolUtil;
 import org.apache.commons.lang3.StringUtils;
 
@@ -300,6 +302,9 @@ public class BasicAgent {
         OpenAICompatibleChatService chatService = ApiProviderManage.getChatService(modelAlias);
         // 归一化副本不含系统提示词，此处统一补充
         List<ChatMessage> apiMessages = buildMessages(messages, prompt, tools);
+        // 发送前兜底：为没有任何结果跟进的 tool_call 补占位（如 hook 挂起后用户跳过
+        // 回答直接发新消息），否则 OpenAI 规范下请求会被网关直接拒绝
+        fillDanglingToolResults(apiMessages);
 
         ApiRequestParams apiRequestParams = contextHolder.getRequestParams();
         if (tools != null && !tools.isEmpty()) {
@@ -459,6 +464,8 @@ public class BasicAgent {
         OpenAICompatibleChatService chatService = ApiProviderManage.getChatService(modelAlias);
         // 归一化副本不含系统提示词，此处统一补充
         List<ChatMessage> apiMessages = buildMessages(messages, prompt, tools);
+        // 发送前兜底：为没有任何结果跟进的 tool_call 补占位（与 handleAIStream 同规则）
+        fillDanglingToolResults(apiMessages);
 
         ApiRequestParams apiRequestParams = contextHolder.getRequestParams();
         if (tools != null && !tools.isEmpty()) {
@@ -501,6 +508,47 @@ public class BasicAgent {
         // 与 handleAIStream 的 onComplete 一致：本轮内立即执行工具调用
         if (!toolCalls.isEmpty()) {
             executeToolCalls(toolCalls);
+        }
+    }
+
+    /**
+     * 发送前兜底：为没有任何 tool 结果跟进的 tool_call 就地补占位结果。
+     *
+     * <p>场景：hook 挂起后用户跳过回答直接发新消息、或异常中断留下断点——
+     * OpenAI 规范要求每个 tool_call 必须有对应的 tool 结果消息，否则请求被网关拒绝。
+     * 只处理发送副本（normalize 已深拷贝），不改动 history 与持久化内容；
+     * 占位文本让模型知道该调用未完成，可据此向用户说明或继续任务。
+     */
+    private void fillDanglingToolResults(List<ChatMessage> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return;
+        }
+        Set<String> resolved = new HashSet<>();
+        for (ChatMessage m : messages) {
+            if (m != null && ChatMessageType.TOOL.getRole().equals(m.getRole())
+                    && StringUtils.isNotBlank(m.getToolCallId())) {
+                resolved.add(m.getToolCallId());
+            }
+        }
+        List<ChatMessage> patched = new ArrayList<>();
+        boolean changed = false;
+        for (ChatMessage m : messages) {
+            patched.add(m);
+            if (m != null && ChatMessageType.ASSISTANT.getRole().equals(m.getRole())
+                    && m.getToolCalls() != null) {
+                for (ToolCall tc : m.getToolCalls()) {
+                    if (tc != null && StringUtils.isNotBlank(tc.getId()) && !resolved.contains(tc.getId())) {
+                        String funcName = tc.getFunction() == null ? "" : tc.getFunction().getName();
+                        patched.add(ChatMessage.withTool(
+                                "[系统消息] 工具调用 " + funcName + " 未返回结果", tc.getId()));
+                        changed = true;
+                    }
+                }
+            }
+        }
+        if (changed) {
+            messages.clear();
+            messages.addAll(patched);
         }
     }
 
@@ -605,7 +653,56 @@ public class BasicAgent {
             }
         }
 
+        // 模型不支持图片输入时剥离 user 消息中的图片（多模态 content 数组 → 纯文本）。
+        // 消息总是持久化读取，可能存在"历史用支持视觉的模型发送、当前换成不支持视觉模型"
+        // 的情况，发送前统一按当前模型能力过滤。
+        if (!isCurrentModelImageSupported()) {
+            for (ChatMessage msg : normalized) {
+                stripImages(msg);
+            }
+        }
+
         return normalized;
+    }
+
+    /**
+     * 当前使用的模型（contextHolder.modelAlias，空则默认模型）是否支持图片输入。
+     */
+    private boolean isCurrentModelImageSupported() {
+        String modelAlias = contextHolder.getModelAlias();
+        if (StringUtils.isBlank(modelAlias)) {
+            modelAlias = ApiProviderManage.getDefaultModel();
+        }
+        try {
+            OpenAICompatibleChatService chatService = ApiProviderManage.getChatService(modelAlias, false);
+            if (chatService == null || chatService.getConfig() == null) {
+                return true;
+            }
+            return chatService.getConfig().isImageSupported();
+        } catch (Exception e) {
+            return true;
+        }
+    }
+
+    /**
+     * 把 user 消息的多模态 content 数组降级为纯文本（丢弃 image_url part，保留 text part）。
+     * 仅处理归一化副本，不影响 history 原始消息与持久化内容。
+     */
+    private void stripImages(ChatMessage msg) {
+        if (msg == null || !ChatMessageType.USER.getRole().equals(msg.getRole())
+                || msg.getContent() == null || msg.getContent().getMultiModals() == null) {
+            return;
+        }
+        StringBuilder text = new StringBuilder();
+        for (Content.MultiModal part : msg.getContent().getMultiModals()) {
+            if (part != null && StringUtils.isNotBlank(part.getText())) {
+                if (text.length() > 0) {
+                    text.append('\n');
+                }
+                text.append(part.getText());
+            }
+        }
+        msg.setContent(Content.ofText(text.toString()));
     }
 
     // ==================== 流式入口（循环实现）====================
@@ -630,16 +727,38 @@ public class BasicAgent {
         AtomicBoolean hasError = new AtomicBoolean(false);
 
         // question 传 null：跳过 ChatInput 事件；currentDeep 不重置，从断点轮次继续
-        runChatLoop(null, false, hasError, finalLatch);
+        runChatLoop(null, null, false, hasError, finalLatch);
 
         return finalLatch;
     }
 
     public CountDownLatch chatStream(String question) {
-        return chatStream(question, true);
+        return chatStream(question, null);
     }
 
     public CountDownLatch chatStream(String question, boolean user) {
+        return chatStream(question, null, user);
+    }
+
+    /**
+     * 携带图片的多模态流式入口：图片（base64 data URI 或 URL）与文本一起构造
+     * OpenAI 规范的多模态 user 消息（content 数组）。图片总是写入 history 与持久化，
+     * 是否真正发给 LLM 由发送前归一化按当前模型视觉能力决定（见 normalizeMessages）。
+     */
+    public CountDownLatch chatStream(String question, List<String> images) {
+        return chatStream(question, images, true);
+    }
+
+    public CountDownLatch chatStream(String question, List<String> images, boolean user) {
+        return chatStream(question, images, user, null);
+    }
+
+    /**
+     * 带 {@code userMsgId} 的流式入口：id 写入本轮 user 消息并随持久化落库，
+     * 与调用方同轮下发的 UserInput 事件（info.msgId）构成两侧关联锚点
+     * （fork/压缩按 id 定位，不依赖轮次索引对齐）。null 时行为与旧重载一致。
+     */
+    public CountDownLatch chatStream(String question, List<String> images, boolean user, String userMsgId) {
         streamChat = true;
         // roundId 统一存放在 contextHolder（断点恢复后事件仍能还原原对话的 roundId）
         String roundId = IdGen.uuid();
@@ -652,16 +771,18 @@ public class BasicAgent {
             question = "";
         }
 
-        // 添加用户问题到历史
-        ChatMessage chatMessage = ChatMessage.withUser(question);
-        appendHistory(chatMessage);
+        // 添加用户问题到历史（有图片时构造 OpenAI 规范的多模态 content 数组）
+        ChatMessage chatMessage = (images == null || images.isEmpty())
+                ? ChatMessage.withUser(question)
+                : ChatMessage.withUser(question, images.toArray(new String[0]));
+        appendHistory(chatMessage, userMsgId);
 
         //  chatMessage 初始化完成
 
         // ======  使用 AtomicBoolean 标记流式调用是否出错 ======
         AtomicBoolean hasError = new AtomicBoolean(false);
 
-        runChatLoop(question, user, hasError, finalLatch);
+        runChatLoop(question, images, user, hasError, finalLatch);
 
         return finalLatch;
     }
@@ -671,9 +792,10 @@ public class BasicAgent {
      * 异常兜底与统一持久化逻辑完全一致。
      *
      * @param question 非 null 时先触发 ChatInput 事件（chatStreamResume 续行无用户输入，传 null 跳过）
+     * @param images   与 question 同发的图片列表（可为 null，仅随 ChatInput 事件下发）
      * @param user     ChatInput 事件是否广播到 EventCenter（与 chatStream(question, user) 语义一致）
      */
-    private void runChatLoop(String question, boolean user, AtomicBoolean hasError, CountDownLatch finalLatch) {
+    private void runChatLoop(String question, List<String> images, boolean user, AtomicBoolean hasError, CountDownLatch finalLatch) {
         ExecutorService executorService = ThreadPoolUtil.getExecutorService();
 
         executorService.execute(new Runnable() {
@@ -698,6 +820,7 @@ public class BasicAgent {
 
                         ChatInputEvent event = new ChatInputEvent();
                         event.setQuestion(question);
+                        event.setImages(images);
                         event.setReplyId(replyId);
                         event.setContext(contextHolder);
                         if (eventHook != null) {
@@ -750,6 +873,13 @@ public class BasicAgent {
                             break;
                         }
 
+                        // hook 挂起：保留断点立即中断（不发 StepEnd——本步未走完）。
+                        // 不能依赖尾部判定：混合工具场景尾部可能是 tool 结果，循环会误续跑
+                        if (contextHolder.isSuspended()) {
+                            log.info("AutoAgent【{}】对话被 hook 挂起，中断循环等待外部恢复", name);
+                            break;
+                        }
+
                         {
                             ReplyId replyId = new ReplyId(historyId,
                                     agentId,
@@ -785,7 +915,10 @@ public class BasicAgent {
                         String role = lastAssistantMsg.getRole();
                         if (!"tool".equals(role)) {
 
-                            if (StringUtils.isBlank(lastAssistantMsg.getContent().getText())) {
+                            // 仅清理真正的空 assistant 回复；挂起断点（带 tool_calls）必须保留
+                            if ((lastAssistantMsg.getToolCalls() == null || lastAssistantMsg.getToolCalls().isEmpty())
+                                    && (lastAssistantMsg.getContent() == null
+                                    || StringUtils.isBlank(lastAssistantMsg.getContent().getText()))) {
                                 history.remove(lastAssistantMsg);
                             }
 
@@ -938,6 +1071,10 @@ public class BasicAgent {
 
         Set<String> executedToolSignatures = new HashSet<>();
 
+        // 当前工具调用的 hook 决策（每个工具在 CallToolBegin 后刷新一次）：
+        // null=放行；blocked 且 result 非空=代答；blocked 且 result 为空=挂起（已在上一步 return）
+        HookResult hookRespond = null;
+
         for (ToolCall toolCall : toolCalls) {
             String functionName = toolCall.getFunction().getName();
             String arguments = toolCall.getFunction().getArguments();
@@ -952,7 +1089,13 @@ public class BasicAgent {
             }
             executedToolSignatures.add(signature);
 
-            String toolId = md5Hex(signature + System.currentTimeMillis()).toLowerCase();
+            // 事件用工具调用标识：优先 toolCall 的原始 id（OpenAI call_xxx，与上下文
+            // 消息/断点持久化同源，前端回填 tool result 时可拿它直接定位断点）；
+            // 网关未返回 id 时退回合成 id（签名+时间戳，仅事件流内展示/去重用）
+            String rawToolCallId = toolCall.getId();
+            String toolId = (rawToolCallId != null && !rawToolCallId.trim().isEmpty())
+                    ? rawToolCallId
+                    : md5Hex(signature + System.currentTimeMillis()).toLowerCase();
 
             // 回调工具开始消息
             {
@@ -978,6 +1121,23 @@ public class BasicAgent {
                 if (eventCenter != null) {
                     eventCenter.fireCallToolBegin(event);
                 }
+
+                // ====== hook 决策：放行 / 代答 / 挂起（通用扩展点，内核不感知具体工具）======
+                // 挂起时 CallToolBegin 已发出（前端可渲染交互卡片），但结果未定：
+                // 置位挂起标志并立即返回，历史停在 assistant.tool_calls（合法断点），
+                // 由应用层在外部条件就绪后追加 tool result 并调 chatStreamResume 续行
+                try {
+                    HookResult hookDecision = eventHook != null ? eventHook.onBeforeToolCall(event) : null;
+                    if (hookDecision != null && hookDecision.isBlocked() && hookDecision.getResult() == null) {
+                        contextHolder.setSuspended(true);
+                        log.info("工具【{}】被 hook 挂起，对话循环保留断点中断，等待外部恢复", functionName);
+                        return;
+                    }
+                    hookRespond = hookDecision;
+                } catch (Exception e) {
+                    log.warn("onBeforeToolCall hook 执行失败，按放行处理: {}", functionName, e);
+                    hookRespond = null;
+                }
             }
 
             try {
@@ -994,7 +1154,10 @@ public class BasicAgent {
                 }
 
                 String result;
-                if (!caneUse) {
+                if (hookRespond != null && hookRespond.isBlocked()) {
+                    // 代答：跳过工具本体，hook 提供的结果直接走正常收尾路径
+                    result = hookRespond.getResult();
+                } else if (!caneUse) {
                     result = "工具不存在：" + functionName;
                 } else {
                     result = FCUtil.invoke(functionName, arguments, contextHolder);
@@ -1141,8 +1304,17 @@ public class BasicAgent {
      * 所有需要新增消息的地方统一走此方法，替代直接 addHistory/history.add
      */
     private void appendHistory(ChatMessage message) {
+        appendHistory(message, null);
+    }
+
+    /**
+     * 带 {@code persistId} 的持久化入队：history 永远只存纯 ChatMessage（OpenAI 请求
+     * 序列化来源，不携带任何持久化元数据）；持久化队列持有 {@link PersistedMessage}
+     * 子类副本（运行时类型随 JsonMapper 序列化出顶层 id），锚点仅经落库边界输出。
+     */
+    private void appendHistory(ChatMessage message, String persistId) {
         contextHolder.addHistory(message);
-        appendChatMessageHistoryQueue.offer(message);
+        appendChatMessageHistoryQueue.offer(PersistedMessage.of(message, persistId));
     }
 
     /**
@@ -1156,7 +1328,7 @@ public class BasicAgent {
         List<ChatMessage> newMessages = new ArrayList<>();
         for (ChatMessage msg : appendChatMessageHistoryQueue) {
             // 跳过空内容且无工具调用的消息（已被 history.remove 移除，不应持久化）
-            boolean emptyContent = msg.getContent() == null || StringUtils.isBlank(msg.getContent().getText());
+            boolean emptyContent = isEmptyContent(msg);
             boolean noToolCalls = msg.getToolCalls() == null || msg.getToolCalls().isEmpty();
             if (emptyContent && noToolCalls) {
                 continue;
@@ -1167,6 +1339,22 @@ public class BasicAgent {
             historyPersist.saveChatMessages(newMessages, contextHolder);
         }
         appendChatMessageHistoryQueue.clear();
+    }
+
+    /**
+     * 空内容判定：纯文本看 text；多模态消息的文本在 multiModals 分段里
+     * （顶层 text 恒为 null），必须看分段是否非空——否则带图 user 消息会被
+     * 误判为空而从持久化队列漏掉（上下文表丢 user 行，fork/压缩锚点错位）。
+     */
+    private static boolean isEmptyContent(ChatMessage msg) {
+        Content content = msg.getContent();
+        if (content == null) {
+            return true;
+        }
+        if (content.getMultiModals() != null && !content.getMultiModals().isEmpty()) {
+            return false;
+        }
+        return StringUtils.isBlank(content.getText());
     }
 
     // ==================== 同步入口（循环实现）====================
@@ -1303,6 +1491,13 @@ public class BasicAgent {
                     break;
                 }
 
+                // hook 挂起：保留断点中断循环，lastContent 给同步调用方一个明确的状态提示
+                if (contextHolder.isSuspended()) {
+                    log.info("AutoAgent【{}】同步调用被 hook 挂起，中断等待外部恢复", name);
+                    lastContent = "[对话已挂起，等待外部恢复后继续]";
+                    break;
+                }
+
                 {
                     ReplyId replyId = new ReplyId(historyId,
                             agentId,
@@ -1338,12 +1533,15 @@ public class BasicAgent {
                 String role = lastAssistantMsg.getRole();
                 if (!"tool".equals(role)) {
 
-                    // 同步返回值需要：提取末条 assistant 回复作为答案
-                    if (lastAssistantMsg.getContent() != null) {
-                        lastContent = lastAssistantMsg.getContent().getText();
-                    }
-                    if (StringUtils.isBlank(lastContent)) {
-                        history.remove(lastAssistantMsg);
+                    // 同步返回值需要：提取末条 assistant 回复作为答案；
+                    // 挂起断点（带 tool_calls）必须保留，不作为答案提取也不清理
+                    if (lastAssistantMsg.getToolCalls() == null || lastAssistantMsg.getToolCalls().isEmpty()) {
+                        if (lastAssistantMsg.getContent() != null) {
+                            lastContent = lastAssistantMsg.getContent().getText();
+                        }
+                        if (StringUtils.isBlank(lastContent)) {
+                            history.remove(lastAssistantMsg);
+                        }
                     }
 
                     break;
