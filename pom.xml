@@ -6,7 +6,7 @@
 
     <groupId>net.itzq.mira</groupId>
     <artifactId>agent-core</artifactId>
-    <version>0.1.2-SNAPSHOT</version>
+    <version>0.1.3-SNAPSHOT</version>
 
 
     <properties>
@@ -110,7 +110,7 @@
         </dependency>
 
         <!-- ========== Lucene 依赖（用于混合检索） ========== -->
-        <!-- Lucene Core - 核心库 -->
+        <!-- Lucene Core - 核心库  -->
 <!--        <dependency>-->
 <!--            <groupId>org.apache.lucene</groupId>-->
 <!--            <artifactId>lucene-core</artifactId>-->

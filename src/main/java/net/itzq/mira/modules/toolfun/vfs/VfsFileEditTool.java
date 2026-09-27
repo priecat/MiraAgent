@@ -4,12 +4,15 @@ import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.tool.annotation.ToolParam;
+import net.itzq.mira.modules.ai.tool.ToolCallResult;
 import net.itzq.mira.modules.toolfun.ToolFun;
 import net.itzq.mira.modules.vfs.VFS;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -46,34 +49,34 @@ public class VfsFileEditTool {
             AgentContextHolder contextHolder) {
 
         if (StringUtils.isBlank(contextHolder.getVfsId())){
-            return "编辑失败: 虚拟文件系统未初始化";
+            return ToolCallResult.error("编辑失败: 虚拟文件系统未初始化");
         }
 
         try (VFS vfs = VFS.load(contextHolder.getVfsId())) {
             // 验证 1: 文件存在
             if (!vfs.exists(filePath)) {
-                return String.format("编辑失败: 文件不存在 —— %s", filePath);
+                return ToolCallResult.error(String.format("编辑失败: 文件不存在 —— %s", filePath));
             }
 
             // 验证 2: 文件大小
             long fileSize = vfs.size(filePath);
             if (fileSize > MAX_FILE_SIZE) {
-                return String.format("编辑失败: 文件过大 (%d bytes)，超过 1 GiB 限制", fileSize);
+                return ToolCallResult.error(String.format("编辑失败: 文件过大 (%d bytes)，超过 1 GiB 限制", fileSize));
             }
 
             // 验证 3: 新旧不能相同
             if (oldString.equals(newString)) {
-                return "编辑失败: old_string 和 new_string 相同，没有需要修改的内容";
+                return ToolCallResult.error("编辑失败: old_string 和 new_string 相同，没有需要修改的内容");
             }
 
             // 验证 4: oldString 不能为空
             if (StringUtils.isBlank(oldString)) {
-                return "编辑失败: old_string 不能为空";
+                return ToolCallResult.error("编辑失败: old_string 不能为空");
             }
 
             // 验证 5: Notebook 文件须使用 NotebookEdit 工具
             if (filePath.toLowerCase().endsWith(".ipynb")) {
-                return "编辑失败: 文件是 Jupyter Notebook。请使用 NotebookEdit 工具编辑此文件。";
+                return ToolCallResult.error("编辑失败: 文件是 Jupyter Notebook。请使用 NotebookEdit 工具编辑此文件。");
             }
 
             // 读取文件原始字节（用于 BOM 检测和编码判断）
@@ -81,7 +84,7 @@ public class VfsFileEditTool {
             try {
                 rawBytes = vfs.readAllBytes(filePath);
             } catch (IOException e) {
-                return "编辑失败: 无法读取文件 —— " + e.getMessage();
+                return ToolCallResult.error("编辑失败: 无法读取文件 —— " + e.getMessage());
             }
 
             // BOM 检测：UTF-16LE (0xFF 0xFE)
@@ -102,21 +105,21 @@ public class VfsFileEditTool {
             // 字符串匹配（精确 + 引号规范化）
             String actualOldString = findActualString(fileContent, oldString);
             if (actualOldString == null) {
-                return String.format("编辑失败: old_string 在文件中未找到。\n" + "请确认 old_string 与文件内容完全一致（包括空格、缩进和标点符号）。\n"
-                        + "old_string: \"%s\"", truncateForDisplay(oldString, 200));
+                return ToolCallResult.error(String.format("编辑失败: old_string 在文件中未找到。\n" + "请确认 old_string 与文件内容完全一致（包括空格、缩进和标点符号）。\n"
+                        + "old_string: \"%s\"", truncateForDisplay(oldString, 200)));
             }
 
-            // 保留文件中的引号风格：当文件使用弯引号而输入使用直引号时，将 newString 的直引号转为弯引号
-            newString = preserveQuoteStyle(actualOldString, newString);
+            // 保留文件中的引号风格：仅当匹配经过引号归一化（输入直引号、文件弯引号）时才改写 newString
+            newString = preserveQuoteStyle(oldString, actualOldString, newString);
 
             // 唯一性检查
             boolean replaceAllFlag = replaceAll != null && replaceAll;
             int matchCount = countOccurrences(fileContent, actualOldString);
             if (matchCount > 1 && !replaceAllFlag) {
-                return String.format("编辑失败: 找到 %d 处匹配，但 replace_all 为 false。\n" + "要替换所有匹配项，请设置 replace_all=true。\n"
+                return ToolCallResult.error(String.format("编辑失败: 找到 %d 处匹配，但 replace_all 为 false。\n" + "要替换所有匹配项，请设置 replace_all=true。\n"
                                 + "要仅替换其中一处，请提供更多上下文使 old_string 唯一。\n\n" + "匹配的字符串: \"%s\"",
                         matchCount,
-                        truncateForDisplay(actualOldString, 200));
+                        truncateForDisplay(actualOldString, 200)));
             }
 
             // 执行替换
@@ -140,14 +143,14 @@ public class VfsFileEditTool {
             // 生成 diff 预览
             String diffPreview = generateDiffPreview(fileContent, newContent, actualOldString, newString);
 
-            return String.format("✅ 文件编辑成功: %s\n%s 处匹配已替换\n\n%s",
+            return ToolCallResult.success(String.format("文件编辑成功: %s\n%s 处匹配已替换\n\n%s",
                     filePath,
                     replaceAllFlag ? "所有 " + matchCount : "1",
-                    diffPreview);
+                    diffPreview));
 
         } catch (Exception e) {
             log.error("FileEditTool 执行失败", e);
-            return "编辑失败: " + e.getMessage();
+            return ToolCallResult.error("编辑失败: " + e.getMessage());
         }
     }
 
@@ -234,41 +237,86 @@ public class VfsFileEditTool {
     }
 
     /**
-     * 保留文件中的引号风格
-     * 当 actualOldString 包含弯引号时，将 newString 中对应的直引号转为弯引号
+     * 保留文件中的引号风格。
+     *
+     * - old_string 与文件精确一致（输入本身就是弯引号）时，不改写 newString：
+     *   模型明确写出的直引号（如 Java 代码）必须原样保留；
+     * - 匹配经过引号归一化时，方向判定不用"前后字符"启发式去猜
+     *   （会把 xxxx"< " 判成 ”<“ 这种方向反转），而是按出现顺序与
+     *   actualOldString 中的弯引号一一对应；超出对应关系的新增引号才退回启发式。
      */
-    private String preserveQuoteStyle(String actualOldString, String newString) {
-        boolean hasDoubleCurly = actualOldString.contains("\u201c") || actualOldString.contains("\u201d");
-        boolean hasSingleCurly = actualOldString.contains("\u2018") || actualOldString.contains("\u2019");
-
-        if (!hasDoubleCurly && !hasSingleCurly) {
+    private String preserveQuoteStyle(String oldString, String actualOldString, String newString) {
+        if (oldString.equals(actualOldString)) {
             return newString;
         }
-
-        String result = newString;
-        if (hasDoubleCurly) {
-            result = applyCurlyQuotes(result, '"', '\u201c', '\u201d');
-        }
-        if (hasSingleCurly) {
-            result = applyCurlyQuotes(result, '\'', '\u2018', '\u2019');
-        }
+        String result = applyCurlyQuotesByOrder(newString, actualOldString, '"');
+        result = applyCurlyQuotesByOrder(result, actualOldString, '\'');
         return result;
     }
 
+    /** 弯引号 → 直引号 的归一化映射（与 normalizeQuotes 保持一致） */
+    private static boolean isCurlyDouble(char c) {
+        return c == '\u201c' || c == '\u201d' || c == '\u201e' || c == '\u201f' || c == '\u2033';
+    }
+
+    private static boolean isCurlySingle(char c) {
+        return c == '\u2018' || c == '\u2019' || c == '\u201a' || c == '\u201b' || c == '\u2032';
+    }
+
+    private static char openCurlyFor(char straight) {
+        return straight == '"' ? '\u201c' : '\u2018';
+    }
+
+    private static char closeCurlyFor(char straight) {
+        return straight == '"' ? '\u201d' : '\u2019';
+    }
+
     /**
-     * 应用弯引号：将字符串中的直引号替换为左右弯引号
+     * 把 value 中的 straight 直引号，按 actualOld 中同序号弯引号的方向改写为弯引号。
+     * actualOld 中没有可对应的弯引号时原样返回。
      */
-    private String applyCurlyQuotes(String str, char straight, char leftCurly, char rightCurly) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < str.length(); i++) {
-            char c = str.charAt(i);
-            if (c == straight) {
-                sb.append(isOpeningContext(str, i) ? leftCurly : rightCurly);
-            } else {
-                sb.append(c);
+    private String applyCurlyQuotesByOrder(String value, String actualOld, char straight) {
+        if (value.indexOf(straight) < 0) {
+            return value;
+        }
+        List<Character> directions = new ArrayList<>(actualOld.length());
+        for (int i = 0; i < actualOld.length(); i++) {
+            char c = actualOld.charAt(i);
+            if (straight == '"' ? isCurlyDouble(c) : isCurlySingle(c)) {
+                directions.add(c);
             }
         }
+        if (directions.isEmpty()) {
+            return value;
+        }
+        StringBuilder sb = new StringBuilder(value.length());
+        int quoteIndex = 0;
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c != straight) {
+                sb.append(c);
+                continue;
+            }
+            if (quoteIndex < directions.size()) {
+                sb.append(directions.get(quoteIndex));
+            } else {
+                sb.append(fallbackCurlyDirection(value, i, straight));
+            }
+            quoteIndex++;
+        }
         return sb.toString();
+    }
+
+    /** 超出 old 对应关系的直引号：退回上下文启发式（词中撇号优先按右单引号处理） */
+    private char fallbackCurlyDirection(String value, int index, char straight) {
+        if (straight == '\'') {
+            char previous = index > 0 ? value.charAt(index - 1) : '\0';
+            char next = index + 1 < value.length() ? value.charAt(index + 1) : '\0';
+            if (Character.isLetter(previous) && Character.isLetter(next)) {
+                return '\u2019'; // don't / it's 词中撇号
+            }
+        }
+        return isOpeningContext(value, index) ? openCurlyFor(straight) : closeCurlyFor(straight);
     }
 
     /**

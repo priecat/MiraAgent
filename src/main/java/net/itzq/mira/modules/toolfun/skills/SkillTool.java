@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.tool.annotation.ToolParam;
+import net.itzq.mira.modules.ai.tool.ToolCallResult;
 import net.itzq.mira.modules.ai.skills.SkillBundle;
 import net.itzq.mira.modules.ai.skills.SkillEntity;
 import net.itzq.mira.modules.ai.skills.SkillManager;
@@ -51,12 +52,12 @@ public class SkillTool {
         // 校验技能是否在本次可用范围
         List<String> activeSlugs = context.getActiveSkillSlugs();
         if (activeSlugs == null || !activeSlugs.contains(skill_name)) {
-            return "技能不在本次可用范围: " + skill_name;
+            return ToolCallResult.error("技能不在本次可用范围: " + skill_name);
         }
 
         SkillManager manager = SkillManager.getInstance();
         if (!manager.isInitialized()) {
-            return "技能系统未初始化";
+            return ToolCallResult.error("技能系统未初始化");
         }
 
         SkillEntity skill = manager.getSkill(skill_name);
@@ -71,7 +72,7 @@ public class SkillTool {
         }
 
         if (skill == null) {
-            return "技能不存在: " + skill_name + "。可用技能: " + manager.buildSkillsSummary();
+            return ToolCallResult.error("技能不存在: " + skill_name + "。可用技能: " + manager.buildSkillsSummary());
         }
 
         log.info("AI调用技能: {} ({})", skill.getSlug(), skill.getName());
@@ -87,7 +88,7 @@ public class SkillTool {
         result.append("\n注意：二进制文件（图片/字体/Office 文档等）无法直接读取，");
         result.append("可用 expand_skill 工具把技能包展开到磁盘目录后处理。");
 
-        return result.toString();
+        return ToolCallResult.success(result.toString());
     }
 
     @Tool(
@@ -104,31 +105,31 @@ public class SkillTool {
         // 校验技能是否在本次可用范围
         List<String> activeSlugs = context.getActiveSkillSlugs();
         if (activeSlugs == null || !activeSlugs.contains(skill_name)) {
-            return "技能不在本次可用范围: " + skill_name;
+            return ToolCallResult.error("技能不在本次可用范围: " + skill_name);
         }
 
         try {
             SkillBundle bundle = SkillBundle.get(skill_name);
             if (!bundle.exists(file_path)) {
-                return "文件不存在: " + skill_name + "/" + file_path;
+                return ToolCallResult.error("文件不存在: " + skill_name + "/" + file_path);
             }
             // 二进制文件无法当作文本读取（参考 VfsFileReadTool），提示展开技能包到磁盘
             String fileName = file_path.substring(file_path.lastIndexOf('/') + 1);
             String ext = fileName.contains(".")
                     ? fileName.substring(fileName.lastIndexOf('.')).toLowerCase() : "";
             if (isBinaryFile(fileName)) {
-                return String.format(
+                return ToolCallResult.error(String.format(
                         "无法读取二进制文件: %s/%s (扩展名: %s)。"
                                 + "请调用 expand_skill 工具把技能包展开到磁盘目录（%s），"
                                 + "再用文件工具处理该文件。",
                         skill_name, file_path, ext.isEmpty() ? "未知" : ext,
-                        ToolFun.TOOL_EXPAND_SKILL);
+                        ToolFun.TOOL_EXPAND_SKILL));
             }
-            return bundle.readFile(file_path);
+            return ToolCallResult.success(bundle.readFile(file_path));
         } catch (UncheckedIOException e) {
-            return "读取技能文件失败: " + e.getMessage();
+            return ToolCallResult.error("读取技能文件失败: " + e.getMessage());
         } catch (Exception e) {
-            return "读取技能文件异常: " + e.getMessage();
+            return ToolCallResult.error("读取技能文件异常: " + e.getMessage());
         }
     }
 
@@ -146,12 +147,12 @@ public class SkillTool {
         // 校验技能是否在本次可用范围
         List<String> activeSlugs = context.getActiveSkillSlugs();
         if (activeSlugs == null || !activeSlugs.contains(skill_name)) {
-            return "技能不在本次可用范围: " + skill_name;
+            return ToolCallResult.error("技能不在本次可用范围: " + skill_name);
         }
 
         String dataDir = GlobalConfigManager.config().getWorkspaceConfig().getDataDir();
         if (dataDir == null || dataDir.trim().isEmpty()) {
-            return "无法展开技能包: GlobalConfigManager.config().getWorkspaceConfig().getDataDir() 未配置";
+            return ToolCallResult.error("无法展开技能包: GlobalConfigManager.config().getWorkspaceConfig().getDataDir() 未配置");
         }
 
         try {
@@ -159,14 +160,14 @@ public class SkillTool {
             Path target = Paths.get(dataDir, "skills-expand", skill_name).normalize();
             int count = bundle.expandTo(target);
             log.info("技能包已展开: {} -> {} ({} 个文件)", skill_name, target.toAbsolutePath(), count);
-            return "技能包已展开: " + skill_name
+            return ToolCallResult.success("技能包已展开: " + skill_name
                     + "\n目标目录: " + target.toAbsolutePath()
                     + "\n共解压 " + count + " 个文件。"
-                    + "脚本/二进制等资源请直接在该目录下操作（执行脚本时注意先确认可执行权限）。";
+                    + "脚本/二进制等资源请直接在该目录下操作（执行脚本时注意先确认可执行权限）。");
         } catch (UncheckedIOException e) {
-            return "展开技能包失败: " + e.getMessage();
+            return ToolCallResult.error("展开技能包失败: " + e.getMessage());
         } catch (Exception e) {
-            return "展开技能包异常: " + e.getMessage();
+            return ToolCallResult.error("展开技能包异常: " + e.getMessage());
         }
     }
 

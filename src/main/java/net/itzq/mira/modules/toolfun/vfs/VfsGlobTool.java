@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.tool.annotation.ToolParam;
+import net.itzq.mira.modules.ai.tool.ToolCallResult;
 import net.itzq.mira.modules.toolfun.ToolFun;
 import net.itzq.mira.modules.vfs.VFS;
 import org.apache.commons.lang3.StringUtils;
@@ -51,13 +52,13 @@ public class VfsGlobTool {
             AgentContextHolder contextHolder) {
 
         if (StringUtils.isBlank(contextHolder.getVfsId())){
-            return "错误: 虚拟文件系统未初始化";
+            return ToolCallResult.error("错误: 虚拟文件系统未初始化");
         }
 
         try (VFS vfs = VFS.load(contextHolder.getVfsId())) {
             FileSystem fs = vfs.getFileSystemForRead();
             if (fs == null) {
-                return "虚拟文件系统为空，尚无文件。建议先使用写入工具上传或创建文件后再搜索。";
+                return ToolCallResult.success("虚拟文件系统为空，尚无文件。建议先使用写入工具上传或创建文件后再搜索。");
             }
 
             // ---------- 智能容错：自动从 pattern 中分离绝对路径 ----------
@@ -85,7 +86,7 @@ public class VfsGlobTool {
 
             Path rootPath = fs.getPath(actualPath);
             if (!Files.exists(rootPath)) {
-                return "错误：搜索目录不存在 -> " + rootPath + "\n请检查 path 参数或确认文件夹未被删除/移动。";
+                return ToolCallResult.error("错误：搜索目录不存在 -> " + rootPath + "\n请检查 path 参数或确认文件夹未被删除/移动。");
             }
 
             // 压缩 pattern 中的重复斜杠
@@ -167,11 +168,11 @@ public class VfsGlobTool {
                 }
             }
 
-            return sb.toString();
+            return ToolCallResult.success(sb.toString());
 
         } catch (Exception e) {
             log.error("GlobTool 执行失败", e);
-            return "文件匹配发生异常: " + e.getMessage();
+            return ToolCallResult.error("文件匹配发生异常: " + e.getMessage());
         }
     }
 

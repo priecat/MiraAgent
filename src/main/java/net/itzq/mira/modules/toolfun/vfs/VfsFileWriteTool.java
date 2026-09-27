@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.tool.annotation.ToolParam;
+import net.itzq.mira.modules.ai.tool.ToolCallResult;
 import net.itzq.mira.modules.toolfun.ToolFun;
 import net.itzq.mira.modules.vfs.VFS;
 import org.apache.commons.lang3.StringUtils;
@@ -42,7 +43,7 @@ public class VfsFileWriteTool {
             AgentContextHolder contextHolder) {
 
         if (StringUtils.isBlank(contextHolder.getVfsId())){
-            return "写入失败: 虚拟文件系统未初始化";
+            return ToolCallResult.error("写入失败: 虚拟文件系统未初始化");
         }
 
         try (VFS vfs = VFS.load(contextHolder.getVfsId())) {
@@ -69,12 +70,12 @@ public class VfsFileWriteTool {
             int lineCount = normalizedContent.split("\n", -1).length;
             String action = exists ? "已覆盖" : "已创建";
 
-            return String.format("✅ 文件%s: %s\n%d 行，%d bytes",
-                    action, filePath, lineCount, fileSize);
+            return ToolCallResult.success(String.format("文件%s: %s\n%d 行，%d bytes",
+                    action, filePath, lineCount, fileSize));
 
         } catch (IOException e) {
             log.error("VfsFileWriteTool 执行失败", e);
-            return "文件写入失败: " + e.getMessage();
+            return ToolCallResult.error("文件写入失败: " + e.getMessage());
         }
     }
 }

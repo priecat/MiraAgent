@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.tool.annotation.ToolParam;
+import net.itzq.mira.modules.ai.tool.ToolCallResult;
 import net.itzq.mira.modules.toolfun.ToolFun;
 import net.itzq.mira.modules.vfs.VFS;
 import org.apache.commons.lang3.StringUtils;
@@ -50,22 +51,22 @@ public class VfsListFilesTool {
             AgentContextHolder contextHolder) {
 
         if (StringUtils.isBlank(contextHolder.getVfsId())) {
-            return "错误: 虚拟文件系统未初始化";
+            return ToolCallResult.error("错误: 虚拟文件系统未初始化");
         }
 
         try (VFS vfs = VFS.load(contextHolder.getVfsId())) {
             FileSystem fs = vfs.getFileSystemForRead();
             if (fs == null) {
-                return "虚拟文件系统为空，尚无文件。建议先使用写入工具上传或创建文件。";
+                return ToolCallResult.success("虚拟文件系统为空，尚无文件。建议先使用写入工具上传或创建文件。");
             }
 
             String searchPath = StringUtils.isBlank(path) ? "/" : path;
             Path rootPath = fs.getPath(searchPath);
             if (!Files.exists(rootPath)) {
-                return "目录不存在: " + searchPath;
+                return ToolCallResult.error("目录不存在: " + searchPath);
             }
             if (!Files.isDirectory(rootPath)) {
-                return "路径不是目录: " + searchPath;
+                return ToolCallResult.error("路径不是目录: " + searchPath);
             }
 
             int depth = maxDepth != null ? Math.min(maxDepth, 10) : DEFAULT_MAX_DEPTH;
@@ -141,11 +142,11 @@ public class VfsListFilesTool {
                 sb.append(String.format("\n[已显示全部剩余条目: 当前 %d - %d]",
                         skip, skip + entries.size() - 1));
             }
-            return sb.toString();
+            return ToolCallResult.success(sb.toString());
 
         } catch (Exception e) {
             log.error("VfsListFilesTool 执行失败", e);
-            return "列出目录失败: " + e.getMessage();
+            return ToolCallResult.error("列出目录失败: " + e.getMessage());
         }
     }
 

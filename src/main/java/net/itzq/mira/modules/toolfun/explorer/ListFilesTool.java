@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.tool.annotation.ToolParam;
+import net.itzq.mira.modules.ai.tool.ToolCallResult;
 import net.itzq.mira.modules.toolfun.ToolFun;
 import org.apache.commons.lang3.StringUtils;
 
@@ -54,7 +55,7 @@ public class ListFilesTool {
             }
 
             if (StringUtils.isBlank(searchPath)) {
-                return "错误：当前未设置默认工作空间，必须指定 path 参数，或向用户询问查找的根目录路径参数。";
+                return ToolCallResult.error("错误：当前未设置默认工作空间，必须指定 path 参数，或向用户询问查找的根目录路径参数。");
             }
 
             Path path0 = Paths.get(searchPath).toAbsolutePath().normalize();
@@ -62,17 +63,17 @@ public class ListFilesTool {
             String pathStr = path0.toString();
             for (String blocked : BLOCKED_PATHS) {
                 if (pathStr.contains(blocked) || pathStr.equals(blocked)) {
-                    return "安全限制: 无法读取设备文件或特殊文件: " + searchPath;
+                    return ToolCallResult.error("安全限制: 无法读取设备文件或特殊文件: " + searchPath);
                 }
             }
 
 
             Path rootPath = Paths.get(searchPath).toAbsolutePath().normalize();
             if (!Files.exists(rootPath)) {
-                return "目录不存在: " + searchPath;
+                return ToolCallResult.error("目录不存在: " + searchPath);
             }
             if (!Files.isDirectory(rootPath)) {
-                return "路径不是目录: " + searchPath;
+                return ToolCallResult.error("路径不是目录: " + searchPath);
             }
 
             int depth = maxDepth != null ? Math.min(maxDepth, 10) : DEFAULT_MAX_DEPTH;
@@ -147,11 +148,11 @@ public class ListFilesTool {
                 sb.append(String.format("\n[已显示全部剩余条目: 当前 %d - %d]",
                         skip, skip + entries.size() - 1));
             }
-            return sb.toString();
+            return ToolCallResult.success(sb.toString());
 
         } catch (Exception e) {
             log.error("ListFilesTool 执行失败", e);
-            return "列出目录失败: " + e.getMessage();
+            return ToolCallResult.error("列出目录失败: " + e.getMessage());
         }
     }
 

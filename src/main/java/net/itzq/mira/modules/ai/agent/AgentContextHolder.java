@@ -159,4 +159,9 @@ public class AgentContextHolder {
         }
         return getVfsId();
     }
+
+    public boolean isStopRequested() {
+        BasicAgent top = getTopAgent();
+        return top != null && top.isStopped();
+    }
 }

@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.tool.annotation.ToolParam;
+import net.itzq.mira.modules.ai.tool.ToolCallResult;
 import net.itzq.mira.modules.toolfun.ToolFun;
 import net.itzq.mira.modules.vfs.VFS;
 import org.apache.commons.lang3.StringUtils;
@@ -94,13 +95,13 @@ public class VfsGrepTool {
             AgentContextHolder contextHolder) {
 
         if (StringUtils.isBlank(contextHolder.getVfsId())){
-            return "搜索失败: 虚拟文件系统未初始化";
+            return ToolCallResult.error("搜索失败: 虚拟文件系统未初始化");
         }
 
         try (VFS vfs = VFS.load(contextHolder.getVfsId())) {
             FileSystem fs = vfs.getFileSystemForRead();
             if (fs == null) {
-                return "虚拟文件系统为空，尚无文件可搜索。建议先使用写入工具上传或创建文件后再搜索。";
+                return ToolCallResult.success("虚拟文件系统为空，尚无文件可搜索。建议先使用写入工具上传或创建文件后再搜索。");
             }
 
             // 参数默认值
@@ -127,13 +128,13 @@ public class VfsGrepTool {
             try {
                 regex = Pattern.compile(pattern, flags);
             } catch (PatternSyntaxException e) {
-                return "正则表达式语法错误: " + e.getMessage();
+                return ToolCallResult.error("正则表达式语法错误: " + e.getMessage());
             }
 
             // 搜索并收集结果
             Path rootPath = fs.getPath(searchPath);
             if (!Files.exists(rootPath)) {
-                return "搜索目录不存在: " + searchPath;
+                return ToolCallResult.error("搜索目录不存在: " + searchPath);
             }
 
             // 按文件缓存全量行内容（用于上下文行提取）
@@ -217,19 +218,19 @@ public class VfsGrepTool {
             // 格式化输出
             switch (mode) {
                 case "files_with_matches":
-                    return formatFilesOnly(resultsToShow, limit, skip, totalMatches, searchPath);
+                    return ToolCallResult.successUnlessMarked(formatFilesOnly(resultsToShow, limit, skip, totalMatches, searchPath));
                 case "count":
-                    return formatCount(resultsToShow, rootPath);
+                    return ToolCallResult.successUnlessMarked(formatCount(resultsToShow, rootPath));
                 case "content":
                 default:
                     boolean useContext = ctxBefore > 0 || ctxAfter > 0;
-                    return formatContent(resultsToShow, fileContents, limit, skip, totalMatches,
-                            ctxBefore, ctxAfter, showNum, useContext);
+                    return ToolCallResult.successUnlessMarked(formatContent(resultsToShow, fileContents, limit, skip, totalMatches,
+                            ctxBefore, ctxAfter, showNum, useContext));
             }
 
         } catch (Exception e) {
             log.error("GrepTool 执行失败", e);
-            return "搜索执行失败: " + e.getMessage();
+            return ToolCallResult.error("搜索执行失败: " + e.getMessage());
         }
     }
 

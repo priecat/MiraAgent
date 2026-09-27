@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.tool.annotation.ToolParam;
+import net.itzq.mira.modules.ai.tool.ToolCallResult;
 import net.itzq.mira.modules.ai.mcp.McpManager;
 import net.itzq.mira.modules.ai.mcp.McpPrepared;
 import net.itzq.mira.modules.toolfun.ToolFun;
@@ -31,10 +32,10 @@ public class McpTool {
     ) {
         McpPrepared mcpConfig = context.getMcpConfig();
         if (mcpConfig == null || StringUtils.isBlank(mcpConfig.getConfigJson())) {
-            return "本次对话未配置MCP";
+            return ToolCallResult.error("本次对话未配置MCP");
         }
 
         log.info("AI调用MCP工具: {}", tool_name);
-        return McpManager.callTool(mcpConfig.getConfigJson(), tool_name, arguments);
+        return ToolCallResult.successUnlessMarked(McpManager.callTool(mcpConfig.getConfigJson(), tool_name, arguments));
     }
 }

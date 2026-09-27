@@ -290,7 +290,7 @@ public class OpenAICompatibleStreamEventHandler extends StreamEventHandler {
                 // 第一个函数
                 toolCall = responseMessage.getToolCalls().get(0);
                 if (toolCall != null) {
-                    if (StringUtils.isNotBlank(toolCall.getFunction().getArguments())) {
+                    if (toolCall.getFunction().getArguments() != null) {
                         argument.append(toolCall.getFunction().getArguments());
                     }
                 }
@@ -300,7 +300,7 @@ public class OpenAICompatibleStreamEventHandler extends StreamEventHandler {
                 toolCalls.add(toolCall);
                 toolCall = responseMessage.getToolCalls().get(0);
                 if (toolCall != null) {
-                    if (StringUtils.isNotBlank(toolCall.getFunction().getArguments())) {
+                    if (toolCall.getFunction().getArguments() != null) {
                         argument.append(toolCall.getFunction().getArguments());
                     }
                 }
@@ -311,7 +311,7 @@ public class OpenAICompatibleStreamEventHandler extends StreamEventHandler {
         } else {
 
             String argStr = responseMessage.getToolCalls().get(0).getFunction().getArguments();
-            if (StringUtils.isNotBlank(argStr)) {
+            if (argStr != null) {
                 argument.append(argStr);
             }
             if (showToolArgs) {
@@ -325,7 +325,7 @@ public class OpenAICompatibleStreamEventHandler extends StreamEventHandler {
         if (StringUtils.isNotBlank(responseMessage.getToolCalls().get(0).getId())) {
             toolCall = responseMessage.getToolCalls().get(0);
             if (toolCall != null) {
-                if (StringUtils.isNotBlank(toolCall.getFunction().getArguments())) {
+                if (toolCall.getFunction().getArguments() != null) {
                     argument.append(toolCall.getFunction().getArguments());
                 }
                 toolCalls.add(toolCall);

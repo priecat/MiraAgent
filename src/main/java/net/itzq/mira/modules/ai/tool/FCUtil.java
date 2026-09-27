@@ -69,7 +69,7 @@ public class FCUtil {
     }
 
     private static Tool.Function.Parameter buildParameters(List<AiToolParam> params) {
-        Map<String, Tool.Function.Property> properties = new HashMap<>();
+        Map<String, Tool.Function.Property> properties = new LinkedHashMap<>();
         List<String> required = new ArrayList<>();
         if (params != null) {
             for (AiToolParam p : params) {
@@ -304,7 +304,16 @@ public class FCUtil {
                 response = com.alibaba.fastjson2.JSON.toJSONString(invoke);
             } catch (Exception e) {
                 log.error("ERROR", e);
-                response = "工具调用失败，错误信息：" + e.getMessage();
+                // 统一协议 + 统一 JSON 序列化，两个问题一起解决：
+                // ① 形态：成功分支走 JSON.toJSONString(invoke)，异常分支原来是裸文本，
+                //    两种形态混在一起，前端只能靠关键词猜、还容易把 \\n 当转义；
+                //    统一成 JSON 字符串后，前端可以安全 JSON.parse。
+                // ② 标识：包成 [mira:err]，前端直接显示"调用失败"，不再猜文案。
+                Throwable cause = e.getCause() == null ? e : e.getCause();
+                String detail = cause.getMessage() == null
+                        ? cause.getClass().getSimpleName() : cause.getMessage();
+                response = com.alibaba.fastjson2.JSON.toJSONString(
+                        ToolCallResult.error(ToolCallResult.KERNEL_ERROR_PREFIX + detail));
             }
 
             log.info("【FC End】 function：{}, argument：{} result：{}", functionName, argument, response);
@@ -340,7 +349,7 @@ public class FCUtil {
 
     private static void setFunctionParameters(Tool.Function function, Method method) {
 
-        Map<String, Tool.Function.Property> parameters = new HashMap<>();
+        Map<String, Tool.Function.Property> parameters = new LinkedHashMap<>();
         List<String> requiredParameters = new ArrayList<>();
 
         for (int i = 0; i < method.getParameterCount(); i++) {

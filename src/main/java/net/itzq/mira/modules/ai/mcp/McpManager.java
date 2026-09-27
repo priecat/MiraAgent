@@ -2,6 +2,7 @@ package net.itzq.mira.modules.ai.mcp;
 
 import com.alibaba.fastjson2.JSONObject;
 import lombok.extern.slf4j.Slf4j;
+import net.itzq.mira.modules.ai.tool.ToolCallResult;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
@@ -76,13 +77,13 @@ public class McpManager {
      */
     public static String callTool(String configJson, String toolFullName, String arguments) {
         if (StringUtils.isBlank(configJson)) {
-            return "MCP配置为空";
+            return ToolCallResult.error("MCP配置为空");
         }
 
         // 解析 toolFullName: mcp__{serverName}__{toolName}
         String[] parts = toolFullName.split("__", 3);
         if (parts.length < 3) {
-            return "无效的MCP工具名格式: " + toolFullName;
+            return ToolCallResult.error("无效的MCP工具名格式: " + toolFullName);
         }
         String serverName = parts[1];
         String toolName = parts[2];
@@ -91,7 +92,7 @@ public class McpManager {
             JSONObject config = JSONObject.parseObject(configJson);
             JSONObject servers = config.getJSONObject("mcpServers");
             if (servers == null || !servers.containsKey(serverName)) {
-                return "MCP服务器未配置: " + serverName;
+                return ToolCallResult.error("MCP服务器未配置: " + serverName);
             }
 
             McpServerConfig serverConfig = McpServerConfig.fromJson(serverName, servers.getJSONObject(serverName));
@@ -99,13 +100,15 @@ public class McpManager {
             try {
                 client.connect();
                 log.info("调用MCP工具: {} (server: {})", toolName, serverName);
+                // 这一层的结果是 MCP 服务端返回的正常工具输出，不在此打标记，
+                // 由上层 McpTool 用 successUnlessMarked 兜底（避免叠两层）
                 return client.callTool(toolName, arguments);
             } finally {
                 client.disconnect();
             }
         } catch (Exception e) {
             log.error("调用MCP工具失败: {}", toolFullName, e);
-            return "MCP工具调用失败: " + e.getMessage();
+            return ToolCallResult.error("MCP工具调用失败: " + e.getMessage());
         }
     }
 

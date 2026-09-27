@@ -7,6 +7,7 @@ import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.agent.SubAgent;
 import net.itzq.mira.modules.ai.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.tool.annotation.ToolParam;
+import net.itzq.mira.modules.ai.tool.ToolCallResult;
 import net.itzq.mira.modules.toolfun.ToolFun;
 
 /**
@@ -69,11 +70,11 @@ public class CodeExplorerTool {
             String result = explorer.execute(query);
 
             log.info("code-explorer 子代理完成");
-            return result;
+            return ToolCallResult.successUnlessMarked(result);
 
         } catch (Exception e) {
             log.error("code-explorer 子代理执行失败", e);
-            return "探索失败: " + e.getMessage();
+            return ToolCallResult.error("探索失败: " + e.getMessage());
         }
     }
 }

@@ -25,6 +25,7 @@ import net.itzq.mira.modules.ai.client.openai.chat.enums.ChatMessageType;
 import net.itzq.mira.modules.ai.client.openai.tool.Tool;
 import net.itzq.mira.modules.ai.client.openai.tool.ToolCall;
 import net.itzq.mira.modules.ai.tool.FCUtil;
+import net.itzq.mira.modules.ai.tool.ToolCallResult;
 import net.itzq.mira.modules.ai.entity.chat.ReplyId;
 import net.itzq.mira.modules.ai.persistence.AbstractHistoryPersist;
 import net.itzq.mira.modules.ai.persistence.PersistedMessage;
@@ -79,6 +80,19 @@ public class BasicAgent {
 
     @Getter
     private boolean streamChat = false;
+
+    /**
+     * 急停标记
+     */
+    @Getter
+    @Setter
+    private volatile boolean stopped = false;
+
+    /**
+     * 本轮是否仍在执行：<b>入口置 true、出口（消息落库之后）置 false</b>。
+     */
+    @Getter
+    private volatile boolean running = false;
 
     @Getter
     @Setter
@@ -271,7 +285,16 @@ public class BasicAgent {
         // 过滤出尚未执行的工具调用（空白/缺失 id 无法与已有结果关联，跳过以避免重复执行）
         List<ToolCall> unresolved = new ArrayList<>();
         for (ToolCall tc : toolCallOwner.getToolCalls()) {
-            if (tc != null && StringUtils.isNotBlank(tc.getId()) && !resolvedIds.contains(tc.getId())) {
+            if (tc == null) {
+                continue;
+            }
+            if (StringUtils.isBlank(tc.getId())) {
+                fireToolCallPair(tc, tc.getId(), String.format("工具调用失败: %s -> %s",
+                        safeToolName(tc),
+                        ToolCallResult.error("工具调用缺少 id，无法执行（已跳过）")));
+                continue;
+            }
+            if (!resolvedIds.contains(tc.getId())) {
                 unresolved.add(tc);
             }
         }
@@ -376,6 +399,13 @@ public class BasicAgent {
                         // 将AI的响应加入历史
                         ChatMessage responseMessage = ChatMessage.withAssistant(handler.getAnswerOutput().toString());
                         appendHistory(responseMessage);
+                    }
+
+                    // ======  落库检查点三：assistant 消息立即落库 ======
+                    try {
+                        persistNewMessages();
+                    } catch (Exception pe) {
+                        log.error("assistant 消息落库失败", pe);
                     }
 
                 } catch (Exception e) {
@@ -715,6 +745,9 @@ public class BasicAgent {
      */
     public CountDownLatch chatStreamResume() {
         streamChat = true;
+        // 运行时标记：入口置 true，出口（消息落库之后）置 false。
+        // 前端"停止"与下一轮的会话互斥都据此判断"这一轮是否真的结束了"
+        running = true;
 
         // 兜底：旧快照可能缺少 roundId
         if (StringUtils.isBlank(contextHolder.getCurrentChatLoopRoundId())) {
@@ -760,6 +793,9 @@ public class BasicAgent {
      */
     public CountDownLatch chatStream(String question, List<String> images, boolean user, String userMsgId) {
         streamChat = true;
+        // 运行时标记：入口置 true（出口在 runChatLoop 的 finally、落库之后置 false）。
+        // 必须在起线程之前就置上：否则"发送后立刻点停止"的极短窗口里，running 仍是 false，调用方会误判为"已经停好了"
+        running = true;
         // roundId 统一存放在 contextHolder（断点恢复后事件仍能还原原对话的 roundId）
         String roundId = IdGen.uuid();
         contextHolder.setCurrentDeep(1);
@@ -831,12 +867,25 @@ public class BasicAgent {
                         }
                     }
 
+                    // ======  落库检查点一：用户消息立即落库 ======
+                    try {
+                        persistNewMessages();
+                    } catch (Exception pe) {
+                        log.error("用户消息落库失败", pe);
+                    }
+
                     while (currentDeep <= maxDepth) {
                         log.info("AutoAgent【{}】流式第{}轮调用开始", name, currentDeep);
 
                         // ======  每轮开始前检查是否有上一轮的错误 ======
                         if (hasError.get()) {
                             log.error("AutoAgent【{}】检测到流式调用错误，中断循环", name);
+                            break;
+                        }
+
+                        // ======  急停检查点一：每轮模型调用前 ======
+                        if (contextHolder.isStopRequested()) {
+                            log.info("AutoAgent【{}】收到停止请求，结束对话循环（第{}轮前）", name, currentDeep);
                             break;
                         }
 
@@ -1054,14 +1103,82 @@ public class BasicAgent {
                 } finally {
                     // 统一持久化：无论正常/异常/深度超限，都在 finally 中执行持久化
                     try {
+                        // 急停退出时 history 可能停在 user（本轮没有任何回复被写入）——
+                        // 补一条 assistant，避免下一轮装载时上下文以 user 结尾
+                        if (contextHolder.isStopRequested()) {
+                            ensureTrailingAssistant("（本轮已被用户停止）");
+                        }
                         persistNewMessages();
                     } catch (Exception pe) {
                         log.error("流式持久化失败", pe);
                     }
+                    // running 在落库<b>之后</b>才置 false：调用方"等到 running=false" 就等于"消息已经落库"
+                    running = false;
                     finalLatch.countDown();
                 }
             }
         });
+    }
+
+    /** 安全取工具名（toolCall / function / name 任一为 null 时都能兜住） */
+    private static String safeToolName(ToolCall toolCall) {
+        if (toolCall == null || toolCall.getFunction() == null
+                || toolCall.getFunction().getName() == null) {
+            return "tool";
+        }
+        return toolCall.getFunction().getName();
+    }
+
+    /**
+     * 发一对「工具调用开始 / 结束」事件（不执行工具本体）。
+     *
+     * <p>为什么需要它：前端在 RawData 阶段会按**流式参数**先建出"预览块"
+     * （编辑/创建类工具会实时显示 diff 预览），该预览块靠
+     * {@code CallToolBegin} / {@code CallToolEnd} 收敛为终态。
+     * 因此只要某个 tool_call 进入了事件流，就<b>必须有配对的 Begin 与 End</b> ——
+     * 否则预览块会永远停在"生成中"，直到整轮收尾被批量收敛。
+     *
+     * @param endMsg 交给事件流的结束消息（与正常路径同格式：{@code 工具调用成功/失败: name -> result}）
+     */
+    private void fireToolCallPair(ToolCall toolCall, String toolId, String endMsg) {
+        EventCenter eventCenter = contextHolder.getEventCenter();
+        EventHook eventHook = contextHolder.getEventHook();
+
+        CallToolBeginEvent begin = new CallToolBeginEvent();
+        begin.setToolCall(toolCall);
+        begin.setToolId(toolId);
+        begin.setReplyId(buildReplyId());
+        begin.setContext(contextHolder);
+        if (eventHook != null) {
+            eventHook.onCallToolBegin(begin);
+        }
+        if (eventCenter != null) {
+            eventCenter.fireCallToolBegin(begin);
+        }
+
+        CallToolEndEvent end = new CallToolEndEvent();
+        end.setToolCall(toolCall);
+        end.setToolId(toolId);
+        end.setEndMsg(endMsg);
+        end.setReplyId(buildReplyId());
+        end.setContext(contextHolder);
+        if (eventHook != null) {
+            eventHook.onCallToolEnd(end);
+        }
+        if (eventCenter != null) {
+            eventCenter.fireCallToolEnd(end);
+        }
+    }
+
+    /** 构造事件用的 ReplyId（与 executeToolCalls 内联构造保持一致） */
+    private ReplyId buildReplyId() {
+        ReplyId replyId = new ReplyId(historyId, agentId,
+                contextHolder.getCurrentChatLoopRoundId(), contextHolder.getCurrentDeep(),
+                IdGen.uuid(), agentName);
+        if (contextHolder.getParentAgent() != null) {
+            replyId.setParentAgentId(contextHolder.getParentAgent().getAgentId());
+        }
+        return replyId;
     }
 
     protected void executeToolCalls(List<ToolCall> toolCalls) {
@@ -1081,21 +1198,46 @@ public class BasicAgent {
 
             // 生成工具调用签名，用于检测循环
             String signature = functionName + ":" + arguments;
-            if (executedToolSignatures.contains(signature)) {
-                String errorMsg = "检测到重复的工具调用: " + signature + "，已跳过。";
-                log.warn(errorMsg);
-                appendHistory(ChatMessage.withTool(errorMsg, toolCall.getId()));
-                continue;
+
+            // ======  落库检查点二：进入下一个工具前，把上一个工具的结果落库 ======
+            try {
+                persistNewMessages();
+            } catch (Exception pe) {
+                log.error("工具结果落库失败", pe);
             }
-            executedToolSignatures.add(signature);
 
             // 事件用工具调用标识：优先 toolCall 的原始 id（OpenAI call_xxx，与上下文
             // 消息/断点持久化同源，前端回填 tool result 时可拿它直接定位断点）；
-            // 网关未返回 id 时退回合成 id（签名+时间戳，仅事件流内展示/去重用）
+            // 网关未返回 id 时退回合成 id（签名+时间戳，仅事件流内展示/去重用）。
+            // 注意：这段必须放在"重复检测"之前 —— 被跳过的调用也要用同一个 id 发事件。
             String rawToolCallId = toolCall.getId();
             String toolId = (rawToolCallId != null && !rawToolCallId.trim().isEmpty())
                     ? rawToolCallId
                     : md5Hex(signature + System.currentTimeMillis()).toLowerCase();
+
+            if (executedToolSignatures.contains(signature)) {
+                String errorMsg = "检测到重复的工具调用: " + signature + "，已跳过。";
+                log.warn(errorMsg);
+                String skipped = ToolCallResult.error(errorMsg);
+                appendHistory(ChatMessage.withTool(skipped, toolCall.getId()));
+                fireToolCallPair(toolCall, toolId,
+                        String.format("工具调用失败: %s -> %s", functionName, skipped));
+                continue;
+            }
+            executedToolSignatures.add(signature);
+
+            // ======  急停检查点二：每个工具执行前 ======
+            // 命中就**不执行**这个工具，改为补一条"已中断"的 tool 结果。这一点是必须的：
+            // assistant 的每个 tool_call 都必须有对应的 tool 结果，否则这条 assistant 在下次
+            // 装载时会变成非法消息（上游直接报错、整段对话报废）。
+            // 用 continue 而不是 break：剩余调用逐个补占位，前端也各自收到一对 Begin/End。
+            if (contextHolder.isStopRequested()) {
+                String interrupted = ToolCallResult.error("该调用已中断（用户停止了本轮对话）");
+                appendHistory(ChatMessage.withTool(interrupted, toolCall.getId()));
+                fireToolCallPair(toolCall, toolId,
+                        String.format("工具调用失败: %s -> %s", functionName, interrupted));
+                continue;
+            }
 
             // 回调工具开始消息
             {
@@ -1158,7 +1300,7 @@ public class BasicAgent {
                     // 代答：跳过工具本体，hook 提供的结果直接走正常收尾路径
                     result = hookRespond.getResult();
                 } else if (!caneUse) {
-                    result = "工具不存在：" + functionName;
+                    result = ToolCallResult.error("工具不存在：" + functionName);
                 } else {
                     result = FCUtil.invoke(functionName, arguments, contextHolder);
                 }
@@ -1167,7 +1309,13 @@ public class BasicAgent {
 
                 contextHolder.getTopGlobalVariables().put(toolMsgId, result);
 
-                String endMsg = String.format("工具调用成功: %s -> %s", functionName, result);
+                // endMsg 是交给事件/前端的那一份。原来无条件写"工具调用成功"，工具内部判定
+                // 失败时前端也会显示绿点；这里改成与工具自报结论一致：
+                //   带 [mira:err] → 失败；带 [mira:ok] → 成功；没标记 → 按成功降级
+                // （未按协议改造的工具，失败只可能来自抛异常，而异常路径一定带 [mira:err]）。
+                boolean toolFailed = ToolCallResult.ERR_MARK.equals(ToolCallResult.markOf(result));
+                String endMsg = String.format("工具调用%s: %s -> %s",
+                        toolFailed ? "失败" : "成功", functionName, result);
                 log.info(endMsg);
 
                 // 回调工具结束消息
@@ -1193,10 +1341,16 @@ public class BasicAgent {
 
             } catch (Exception e) {
 
-                String endMsg = "工具调用失败: " + functionName;
+                // 异常路径同样走统一协议，并把"错误详情"一并交给前端：
+                // 原来 endMsg 里只有函数名，详情只进了模型上下文，前端只看到"调用失败"
+                // 却不知道为什么失败。
+                Throwable cause = e.getCause() == null ? e : e.getCause();
+                String detail = cause.getMessage() == null
+                        ? cause.getClass().getSimpleName() : cause.getMessage();
+                String errorMsg = ToolCallResult.error(ToolCallResult.KERNEL_ERROR_PREFIX + detail);
+                String endMsg = String.format("工具调用失败: %s -> %s", functionName, errorMsg);
 
                 log.error(endMsg, e);
-                String errorMsg = "工具调用失败，错误信息: " + e.getMessage();
                 appendHistory(ChatMessage.withTool(errorMsg, toolCall.getId()));
 
                 // 回调工具结束消息
@@ -1367,6 +1521,8 @@ public class BasicAgent {
      */
     public String chat(String question) {
         streamChat = false;
+        // 运行时标记：入口置 true（出口在 runChatLoopSync 的 finally、落库之后置 false）
+        running = true;
         // 新一轮对话：重置断点状态（roundId 供本轮事件回执使用，与 chatStream 一致）
         contextHolder.setCurrentDeep(1);
         contextHolder.setCurrentChatLoopRoundId(IdGen.uuid());
@@ -1394,6 +1550,8 @@ public class BasicAgent {
      */
     public String chatSyncResume() {
         streamChat = false;
+        // 运行时标记：入口置 true，出口（落库之后）置 false
+        running = true;
 
         // 兜底：旧快照可能缺少 roundId
         if (StringUtils.isBlank(contextHolder.getCurrentChatLoopRoundId())) {
@@ -1449,12 +1607,26 @@ public class BasicAgent {
                 }
             }
 
+            // ======  落库检查点一（同步路径）：用户消息立即落库 ======
+            try {
+                persistNewMessages();
+            } catch (Exception pe) {
+                log.error("用户消息落库失败", pe);
+            }
+
             while (currentDeep <= maxDepth) {
                 log.info("AutoAgent【{}】同步第{}轮调用开始", name, currentDeep);
 
                 // ======  每轮开始前检查是否有上一轮的错误 ======
                 if (hasError.get()) {
                     log.error("AutoAgent【{}】检测到同步调用错误，中断循环", name);
+                    break;
+                }
+
+                // ======  急停检查点一（同步路径）：每轮模型调用前 ======
+                // 读顶层 Agent 的标记（级联：子智能体同样受主 Agent 的停止影响）
+                if (contextHolder.isStopRequested()) {
+                    log.info("AutoAgent【{}】收到停止请求，结束同步循环（第{}轮前）", name, currentDeep);
                     break;
                 }
 
@@ -1680,10 +1852,16 @@ public class BasicAgent {
         } finally {
             // 统一持久化：无论正常/异常/深度超限，都在 finally 中执行持久化
             try {
+                // 急停退出时 history 可能停在 user —— 补一条 assistant，避免上下文以 user 结尾
+                if (contextHolder.isStopRequested()) {
+                    ensureTrailingAssistant("（本轮已被用户停止）");
+                }
                 persistNewMessages();
             } catch (Exception pe) {
                 log.error("同步持久化失败", pe);
             }
+            // 落库之后才置 false（与流式路径一致，见 runChatLoop 的说明）
+            running = false;
         }
 
         return errorMessage != null ? errorMessage : lastContent;
