@@ -1,216 +1,109 @@
 package net.itzq.mira.modules.ai.client.config;
 
-import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.modules.ai.client.handle.OpenAICompatibleAudioService;
 import net.itzq.mira.modules.ai.client.handle.OpenAICompatibleChatService;
 import net.itzq.mira.modules.ai.client.handle.OpenAICompatibleImageService;
 import net.itzq.mira.modules.ai.client.handle.OpenAICompatibleModerationService;
+import net.itzq.mira.modules.runtime.KernelRuntime;
 
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
- *  AIProviderConfig
+ * ApiProviderManage —— 模型服务注册表的**兼容 facade**（P5 实例化后保留）。
  *
- *  @author tangzq
+ * <p>P5 起注册表是实例组件 {@link ModelRegistry}（每个 {@code KernelRuntime} 一份，
+ * 模型/凭据互不可见）。本类静态方法全部委托默认运行时的注册表，存量调用点零改动。
+ *
+ * @deprecated P5：改用 {@code holder.getRuntime().modelRegistry()}。
  */
-@Slf4j
+@Deprecated
 public class ApiProviderManage {
 
-    private static volatile ApiProviderManage instance;
-
-    private Map<String, OpenAICompatibleChatService> providers = new ConcurrentHashMap<>();
-
-    /** 图像生成服务（alias → service），与 chat 相互独立，不影响既有链路 */
-    private volatile Map<String, OpenAICompatibleImageService> imageProviders = new ConcurrentHashMap<>();
-
-    /** 内容审查服务（alias → service） */
-    private volatile Map<String, OpenAICompatibleModerationService> moderationProviders = new ConcurrentHashMap<>();
-
-    /** 语音服务（alias → service，transcription/speech 以不同 alias 分别注册） */
-    private volatile Map<String, OpenAICompatibleAudioService> audioProviders = new ConcurrentHashMap<>();
-
-    private static String defaultModel = "";
-
     private ApiProviderManage() {
-
     }
 
-    public static ApiProviderManage getInstance() {
-        if (instance == null) {
-            synchronized (ApiProviderManage.class) {
-                if (instance == null) {
-                    instance = new ApiProviderManage();
-                }
-            }
-        }
-        return instance;
+    private static ModelRegistry registry() {
+        return KernelRuntime.defaultRuntime().modelRegistry();
     }
 
-    // ==================== 图像 / 审查 / 语音服务注册与路由 ====================
-
-    /** 注册图像生成服务 */
-    public void registerImageService(ModelApiConfig config) {
-        imageProviders.put(config.getAlias(), new OpenAICompatibleImageService(config));
+    /** 兼容入口：返回默认运行时的注册表（原单例语义的等价物） */
+    public static ModelRegistry getInstance() {
+        return registry();
     }
 
-    /** 注册内容审查服务 */
-    public void registerModerationService(ModelApiConfig config) {
-        moderationProviders.put(config.getAlias(), new OpenAICompatibleModerationService(config));
+    // ==================== 图像 / 审查 / 语音 ====================
+
+    public static void registerImageService(ModelApiConfig config) {
+        registry().registerImageService(config);
     }
 
-    /** 注册语音服务（transcription 与 speech 需以不同 alias、不同 endpoint 分别注册） */
-    public void registerAudioService(ModelApiConfig config) {
-        audioProviders.put(config.getAlias(), new OpenAICompatibleAudioService(config));
+    public static void registerModerationService(ModelApiConfig config) {
+        registry().registerModerationService(config);
+    }
+
+    public static void registerAudioService(ModelApiConfig config) {
+        registry().registerAudioService(config);
     }
 
     public static OpenAICompatibleImageService getImageService(String alias) {
-        return getImageService(alias, true);
+        return registry().getImageService(alias);
     }
 
     public static OpenAICompatibleImageService getImageService(String alias, boolean verify) {
-        OpenAICompatibleImageService service = getInstance().imageProviders.get(alias);
-        if (service == null && verify) {
-            throw new RuntimeException("ImageService 未注册 ：" + String.valueOf(alias));
-        }
-        if (service == null) {
-            log.warn("ImageService 未注册 ：{}", String.valueOf(alias));
-        }
-        return service;
+        return registry().getImageService(alias, verify);
     }
 
     public static OpenAICompatibleModerationService getModerationService(String alias) {
-        return getModerationService(alias, true);
+        return registry().getModerationService(alias);
     }
 
     public static OpenAICompatibleModerationService getModerationService(String alias, boolean verify) {
-        OpenAICompatibleModerationService service = getInstance().moderationProviders.get(alias);
-        if (service == null && verify) {
-            throw new RuntimeException("ModerationService 未注册 ：" + String.valueOf(alias));
-        }
-        if (service == null) {
-            log.warn("ModerationService 未注册 ：{}", String.valueOf(alias));
-        }
-        return service;
+        return registry().getModerationService(alias, verify);
     }
 
     public static OpenAICompatibleAudioService getAudioService(String alias) {
-        return getAudioService(alias, true);
+        return registry().getAudioService(alias);
     }
 
     public static OpenAICompatibleAudioService getAudioService(String alias, boolean verify) {
-        OpenAICompatibleAudioService service = getInstance().audioProviders.get(alias);
-        if (service == null && verify) {
-            throw new RuntimeException("AudioService 未注册 ：" + String.valueOf(alias));
-        }
-        if (service == null) {
-            log.warn("AudioService 未注册 ：{}", String.valueOf(alias));
-        }
-        return service;
+        return registry().getAudioService(alias, verify);
     }
 
-    /** 全量重建图像服务（原子替换） */
     public static void resetImages(List<ModelApiConfig> configs) {
-        Map<String, OpenAICompatibleImageService> newConfig = new ConcurrentHashMap<>();
-        if (configs != null) {
-            for (ModelApiConfig mc : configs) {
-                if (mc == null || mc.getAlias() == null || mc.getAlias().isEmpty()) {
-                    log.warn("跳过无效图像服务配置（alias 为空）");
-                    continue;
-                }
-                newConfig.put(mc.getAlias(), new OpenAICompatibleImageService(mc));
-                log.info("注册图像服务: {}", mc.getAlias());
-            }
-        }
-        getInstance().imageProviders = newConfig;
+        registry().resetImages(configs);
     }
 
-    /** 全量重建审查服务（原子替换） */
     public static void resetModerations(List<ModelApiConfig> configs) {
-        Map<String, OpenAICompatibleModerationService> newConfig = new ConcurrentHashMap<>();
-        if (configs != null) {
-            for (ModelApiConfig mc : configs) {
-                if (mc == null || mc.getAlias() == null || mc.getAlias().isEmpty()) {
-                    log.warn("跳过无效审查服务配置（alias 为空）");
-                    continue;
-                }
-                newConfig.put(mc.getAlias(), new OpenAICompatibleModerationService(mc));
-                log.info("注册审查服务: {}", mc.getAlias());
-            }
-        }
-        getInstance().moderationProviders = newConfig;
+        registry().resetModerations(configs);
     }
 
-    /** 全量重建语音服务（原子替换） */
     public static void resetAudios(List<ModelApiConfig> configs) {
-        Map<String, OpenAICompatibleAudioService> newConfig = new ConcurrentHashMap<>();
-        if (configs != null) {
-            for (ModelApiConfig mc : configs) {
-                if (mc == null || mc.getAlias() == null || mc.getAlias().isEmpty()) {
-                    log.warn("跳过无效语音服务配置（alias 为空）");
-                    continue;
-                }
-                newConfig.put(mc.getAlias(), new OpenAICompatibleAudioService(mc));
-                log.info("注册语音服务: {}", mc.getAlias());
-            }
-        }
-        getInstance().audioProviders = newConfig;
+        registry().resetAudios(configs);
     }
 
-    // ==================== 对话服务（既有链路） ====================
+    // ==================== 对话服务 ====================
 
-    // 注册模型
-    public void registerModel(ModelApiConfig config) {
-        providers.put(config.getAlias(), new OpenAICompatibleChatService(config));
+    public static void registerModel(ModelApiConfig config) {
+        registry().registerModel(config);
     }
 
-    // 获取服务实例
     public static OpenAICompatibleChatService getChatService(String modelAlias) {
-        return getChatService(modelAlias, true);
+        return registry().getChatService(modelAlias);
     }
 
     public static OpenAICompatibleChatService getChatService(String modelAlias, boolean verify) {
-        OpenAICompatibleChatService openAICompatibleChatService = getInstance().providers.get(modelAlias);
-
-        if (openAICompatibleChatService == null && verify) {
-            throw new RuntimeException("ChatService 未注册 ：" + String.valueOf(modelAlias));
-        }
-
-        if (openAICompatibleChatService == null) {
-            String msg = "ChatService 未注册 ：" + String.valueOf(modelAlias);
-            log.warn(msg);
-        }
-
-        return openAICompatibleChatService;
+        return registry().getChatService(modelAlias, verify);
     }
 
-    // 注册默认的服务提供者和模型
-    public void setDefaultModel(String modelAlias) {
-        this.defaultModel = modelAlias;
+    public static void setDefaultModel(String modelAlias) {
+        registry().setDefaultModel(modelAlias);
     }
 
     public static String getDefaultModel() {
-        return defaultModel;
+        return registry().getDefaultModel();
     }
 
     public static void reset(List<ModelApiConfig> models) {
-
-        Map<String, OpenAICompatibleChatService> newConfig = new ConcurrentHashMap<>();
-
-        if (models != null) {
-            for (ModelApiConfig mc : models) {
-                if (mc == null || mc.getAlias() == null || mc.getAlias().isEmpty()) {
-                    log.warn("跳过无效模型配置（alias 为空）");
-                    continue;
-                }
-                newConfig.put(mc.getAlias(), new OpenAICompatibleChatService(mc));
-                log.info("注册对话模型: {}", mc.getAlias());
-            }
-        }
-
-        getInstance().providers = newConfig;
+        registry().reset(models);
     }
-
-
 }

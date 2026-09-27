@@ -9,6 +9,8 @@ import net.itzq.mira.modules.ai.client.sse.HttpSSEClient;
 import net.itzq.mira.modules.ai.client.sse.SseException;
 import net.itzq.mira.modules.ai.tool.FCUtil;
 import net.itzq.mira.modules.ai.client.openai.tool.Tool;
+import net.itzq.mira.modules.config.GlobalConfigManager;
+import net.itzq.mira.modules.config.SseClientConfig;
 import org.apache.commons.lang3.StringUtils;
 
 import java.lang.reflect.Constructor;
@@ -28,10 +30,46 @@ public class OpenAICompatibleChatService {
 
     private ModelApiConfig config;
 
+    /** 工具注册表（P5）：请求里 functions → Tool 实体从本实例的注册表解析（多实例隔离） */
+    private final net.itzq.mira.modules.ai.tool.ToolRegistry toolRegistry;
+
+    /** SSE 超时快照（P5 多实例）：取本 service 所属运行时的声明，请求时传给 HttpSSEClient */
+    private final SseClientConfig sseTimeouts;
+
     public OpenAICompatibleChatService(ModelApiConfig config) {
-        // 使用HttpSSEClient默认配置，可根据需要调整
+        this(config, net.itzq.mira.modules.runtime.KernelRuntime.defaultRuntime().toolRegistry());
+    }
+
+    public OpenAICompatibleChatService(ModelApiConfig config,
+                                       net.itzq.mira.modules.ai.tool.ToolRegistry toolRegistry) {
         this.config = config;
+        this.toolRegistry = toolRegistry == null
+                ? net.itzq.mira.modules.runtime.KernelRuntime.defaultRuntime().toolRegistry()
+                : toolRegistry;
         this.httpSSEClient = HttpSSEClient.getInstance();
+        // P5 多实例：SSE 超时取**本 service 所属运行时**的声明（经注册表反向引用），
+        // 声明 reset/import 时 service 随之重建、快照随之更新
+        this.sseTimeouts = resolveSseTimeouts(this.toolRegistry);
+    }
+
+    /**
+     * 解析本 service 生效的 SSE 超时配置：
+     * 所属运行时的声明优先；注册表未绑定运行时 / 声明未配置时回落默认运行时声明。
+     */
+    static SseClientConfig resolveSseTimeouts(net.itzq.mira.modules.ai.tool.ToolRegistry registry) {
+        SseClientConfig cfg = null;
+        if (registry != null && registry.getRuntime() != null) {
+            cfg = registry.getRuntime().declaration().getSseClientSimpleConfig();
+        }
+        if (cfg == null) {
+            cfg = GlobalConfigManager.config().getSseClientSimpleConfig();
+        }
+        return cfg != null ? cfg : new SseClientConfig();
+    }
+
+    /** 本 service 生效的 SSE 超时快照（测试与诊断用） */
+    public SseClientConfig getSseTimeouts() {
+        return sseTimeouts;
     }
 
     /** 模型注册配置（含视觉能力声明等） */
@@ -86,7 +124,7 @@ public class OpenAICompatibleChatService {
         apiRequestParams.setMessages(messages);
 
         if (apiRequestParams.getFunctions() != null && !apiRequestParams.getFunctions().isEmpty()) {
-            List<Tool> tools = FCUtil.getAllFunctionTools(apiRequestParams.getFunctions());
+            List<Tool> tools = toolRegistry.getAllFunctionTools(apiRequestParams.getFunctions());
             apiRequestParams.setTools(tools);
         }
 
@@ -141,10 +179,10 @@ public class OpenAICompatibleChatService {
                 throw new SseException("创建事件处理器失败", e);
             }
 
-            httpSSEClient.postSse(api, requestString, apiHeaders, handler);
+            httpSSEClient.postSse(api, requestString, apiHeaders, handler, sseTimeouts);
             return null;
         } else {
-            String response = httpSSEClient.postJsonSync(api, requestString, apiHeaders);
+            String response = httpSSEClient.postJsonSync(api, requestString, apiHeaders, sseTimeouts);
             log.info("[AI Response] {}", StringUtils.left(response, 300));
             return response;
         }

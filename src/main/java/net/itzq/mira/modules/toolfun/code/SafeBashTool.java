@@ -5,6 +5,7 @@ import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.tool.annotation.Tool;
 import net.itzq.mira.modules.ai.tool.annotation.ToolParam;
 import net.itzq.mira.modules.ai.tool.ToolCallResult;
+import net.itzq.mira.modules.config.AgentConfig;
 import net.itzq.mira.modules.config.GlobalConfigManager;
 import net.itzq.mira.modules.toolfun.ToolFun;
 import org.apache.commons.lang3.StringUtils;
@@ -71,7 +72,25 @@ public class SafeBashTool {
     private static final int WATCHDOG_INTERVAL_MS = 2000;
 
     // 读取环境变量中的沙箱用户名。如果设置了，Bash命令将以该用户身份执行。
-    private static final String SANDBOX_USER = GlobalConfigManager.config().getAgentConfig().getBashSandBoxUser();
+    /**
+     * 降权执行用户：**调用时**读取声明——
+     * 原为 static final 在类加载期求值，若早于宿主应用配置则永久为空；
+     * P5 多实例：优先取**本运行时**声明（经工具上下文），无上下文回落默认运行时。
+     */
+    private static String sandboxUser(AgentContextHolder contextHolder) {
+        try {
+            AgentConfig cfg = null;
+            if (contextHolder != null) {
+                cfg = contextHolder.getRuntime().declaration().getAgentConfig();
+            }
+            if (cfg == null) {
+                cfg = GlobalConfigManager.config().getAgentConfig();
+            }
+            return cfg == null ? null : cfg.getBashSandBoxUser();
+        } catch (Exception e) {
+            return null;
+        }
+    }
 
     /** 危险命令模式（检测并警告） */
     private static final Pattern[] DANGEROUS_PATTERNS = {
@@ -182,7 +201,7 @@ public class SafeBashTool {
             }
 
             boolean isWindows = System.getProperty("os.name").toLowerCase().contains("win");
-            ProcessBuilder pb = buildProcessBuilder(command, resolvedWorkDir, isWindows);
+            ProcessBuilder pb = buildProcessBuilder(command, resolvedWorkDir, isWindows, contextHolder);
 
             pb.environment().put("GIT_EDITOR", "true");
             // stderr 合并进 stdout，保证输出顺序可信
@@ -282,15 +301,17 @@ public class SafeBashTool {
     // ==================================================================
 
     /** 构建 ProcessBuilder，区分 Windows / 普通 / 降权三种执行模式 */
-    private ProcessBuilder buildProcessBuilder(String command, String workDir, boolean isWindows) {
+    private ProcessBuilder buildProcessBuilder(String command, String workDir, boolean isWindows,
+            AgentContextHolder contextHolder) {
         if (isWindows) {
             ProcessBuilder pb = new ProcessBuilder("cmd.exe", "/c", command);
             pb.directory(new File(workDir));
             return pb;
         }
-        if (StringUtils.isNotBlank(SANDBOX_USER)) {
+        String sandboxUser = sandboxUser(contextHolder);
+        if (StringUtils.isNotBlank(sandboxUser)) {
             // === 降权执行模式 ===
-            log.info("BashTool: 启用降权执行，目标用户: {}", SANDBOX_USER);
+            log.info("BashTool: 启用降权执行，目标用户: {}", sandboxUser);
 
             // 1. 包装环境变量（防止 su 重置环境）
             // 2. 包装工作目录切换（防止 agent_user 无权访问原工作目录报错）
@@ -301,7 +322,7 @@ public class SafeBashTool {
                     escapedWorkDir, command
             );
 
-            ProcessBuilder pb = new ProcessBuilder("su", "-s", "/bin/sh", SANDBOX_USER, "-c", wrappedCommand);
+            ProcessBuilder pb = new ProcessBuilder("su", "-s", "/bin/sh", sandboxUser, "-c", wrappedCommand);
             // 注意：降权模式下不能使用 pb.directory(workDir)。
             // 因为如果 agent_user 没有该目录的读取/执行权限，ProcessBuilder 在启动进程时会直接抛出 IOException。
             // 所以我们将其设为根目录，实际的 cd 已在 wrappedCommand 中处理。

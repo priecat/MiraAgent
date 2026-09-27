@@ -103,7 +103,7 @@ public class SubAgent extends BasicAgent {
      */
     public SubAgent registerToolClasses(Class<?>... toolClasses) {
         try {
-            FCUtil.scanTools(toolClasses);
+            subContext.getRuntime().toolRegistry().scanTools(toolClasses);
         } catch (Exception e) {
             log.error("注册工具类失败", e);
         }

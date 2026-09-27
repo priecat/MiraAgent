@@ -26,10 +26,18 @@ public class SkillBundle {
 
     private static volatile String globalSkillDir;
 
-    /** 实例缓存：skillName -> SkillBundle */
+    /**
+     * 缓存：bundleKey(来源目录, skillName) → SkillBundle。
+     * P5 多实例：key 必须带**来源目录**——两个运行时配不同 skillsDir 且有同名技能时，
+     * 只按名字缓存会让后者命中前者的 zip（读错文件）。
+     */
     private static final ConcurrentHashMap<String, SkillBundle> cache = new ConcurrentHashMap<>();
 
     private final String skillName;
+
+    /** 本实例的 zip 来源目录（构建时确定；目录感知缓存的 key 组成部分） */
+    private final String sourceDir;
+
     private final VFS vfs;
 
     /** 技能包内真实根前缀：裸包为 "/"，带顶层目录的包为 "/&lt;top&gt;"（懒探测，见 detectRootPrefix） */
@@ -42,27 +50,47 @@ public class SkillBundle {
         globalSkillDir = dir;
     }
 
+    /** 缓存 key：来源目录归一化 + 技能名（不同目录的同名技能互不串扰） */
+    private static String bundleKey(String skillsDir, String skillName) {
+        String dir = skillsDir == null || skillsDir.trim().isEmpty()
+                ? "." : Paths.get(skillsDir).toAbsolutePath().normalize().toString();
+        return dir + "::" + skillName;
+    }
+
     /**
-     * 获取或创建 SkillBundle（缓存）
-     * computeIfAbsent 保证同一 skill 只创建一次 VFS（只 openZip 一次）
+     * 获取或创建 SkillBundle（缓存）——**显式目录版（正路）**。
+     * computeIfAbsent 保证同一 (目录, 技能) 只创建一次 VFS（只 openZip 一次）。
      */
-    public static SkillBundle get(String skillName) {
-        return cache.computeIfAbsent(skillName, name -> {
-            Path zipPath = Paths.get(globalSkillDir, name + ".zip");
+    public static SkillBundle get(String skillsDir, String skillName) {
+        String key = bundleKey(skillsDir, skillName);
+        return cache.computeIfAbsent(key, k -> {
+            Path zipPath = Paths.get(skillsDir, skillName + ".zip");
             try {
                 VFS vfs = VFS.createZip(zipPath);
-                SkillBundle bundle = new SkillBundle(name, vfs);
+                SkillBundle bundle = new SkillBundle(skillName, skillsDir, vfs);
                 bundle.detectRootPrefix();
-                log.debug("SkillBundle 已创建: {} -> {} (root={})", name, zipPath, bundle.rootPrefix);
+                log.debug("SkillBundle 已创建: {} -> {} (root={})", key, zipPath, bundle.rootPrefix);
                 return bundle;
             } catch (IOException e) {
-                throw new UncheckedIOException("无法打开技能包: " + name, e);
+                throw new UncheckedIOException("无法打开技能包: " + skillName, e);
             }
         });
     }
 
-    private SkillBundle(String skillName, VFS vfs) {
+    /**
+     * 获取或创建 SkillBundle（缓存）——按全局技能目录。
+     *
+     * @deprecated P5 多实例：全局目录是"最后一次 init"的值，多实例下会取错来源。
+     *             请改用 {@link #get(String, String)} 并显式传所属运行时的技能目录。
+     */
+    @Deprecated
+    public static SkillBundle get(String skillName) {
+        return get(globalSkillDir, skillName);
+    }
+
+    private SkillBundle(String skillName, String sourceDir, VFS vfs) {
         this.skillName = skillName;
+        this.sourceDir = sourceDir;
         this.vfs = vfs;
     }
 
@@ -149,20 +177,56 @@ public class SkillBundle {
     }
 
     /**
-     * 失效并关闭指定技能包的缓存实例（重新导入覆盖 zip 前调用）。
+     * 失效并关闭指定技能包的缓存实例（重新导入覆盖 zip 前调用）——**显式目录版（正路）**。
      *
      * <p>不失效的后果：旧 ZipFS 句柄一直开着——Windows 下覆盖写 zip 会被文件锁挡住；
      * 即使写入成功，{@link #get} 也命中旧缓存读到旧内容。
      */
-    public static void invalidate(String skillName) {
-        SkillBundle b = cache.remove(skillName);
+    public static void invalidate(String skillsDir, String skillName) {
+        SkillBundle b = cache.remove(bundleKey(skillsDir, skillName));
         if (b != null) {
             try {
                 b.vfs.close();
             } catch (Exception e) {
-                log.warn("关闭技能包缓存异常: {}", b.skillName, e);
+                log.warn("关闭技能包缓存异常: {}@{}", b.skillName, b.sourceDir, e);
             }
         }
+    }
+
+    /**
+     * 失效**指定来源目录**下的全部缓存实例（目录下任何 zip 被覆盖前调用）。
+     * 供 {@code SkillRepository.shutdown} 释放本运行时打开的技能包句柄。
+     */
+    public static void invalidateDir(String skillsDir) {
+        if (skillsDir == null || skillsDir.trim().isEmpty()) {
+            return;
+        }
+        String prefix = bundleKey(skillsDir, "");
+        // ConcurrentHashMap 的 keySet 弱一致迭代器支持迭代中 remove
+        for (String k : cache.keySet()) {
+            if (!k.startsWith(prefix)) {
+                continue;
+            }
+            SkillBundle b = cache.remove(k);
+            if (b != null) {
+                try {
+                    b.vfs.close();
+                } catch (Exception e) {
+                    log.warn("关闭技能包缓存异常: {}@{}", b.skillName, b.sourceDir, e);
+                }
+            }
+        }
+    }
+
+    /**
+     * 失效并关闭指定技能包的缓存实例——按全局技能目录。
+     *
+     * @deprecated P5 多实例：全局目录是"最后一次 init"的值，多实例下会失效错对象。
+     *             请改用 {@link #invalidate(String, String)} 并显式传来源目录。
+     */
+    @Deprecated
+    public static void invalidate(String skillName) {
+        invalidate(globalSkillDir, skillName);
     }
 
     /**

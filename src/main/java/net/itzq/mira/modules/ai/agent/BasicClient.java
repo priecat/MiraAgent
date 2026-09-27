@@ -282,18 +282,18 @@ public class BasicClient   {
     private List<ToolCall> callAI() {
         String modelAlias = contextHolder.getModelAlias();
         if (StringUtils.isBlank(modelAlias)) {
-            modelAlias = ApiProviderManage.getDefaultModel();
+            modelAlias = contextHolder.getRuntime().modelRegistry().getDefaultModel();
         }
         List<String> tools = contextHolder.getTools();
         String prompt = contextHolder.getPrompt();
         List<ChatMessage> history = contextHolder.getHistory();
 
-        OpenAICompatibleChatService chatService = ApiProviderManage.getChatService(modelAlias);
+        OpenAICompatibleChatService chatService = contextHolder.getRuntime().modelRegistry().getChatService(modelAlias);
         List<ChatMessage> messages = buildMessages(history, prompt, tools);
 
         ApiRequestParams apiRequestParams = contextHolder.getRequestParams();
         if (tools != null && !tools.isEmpty()) {
-            List<Tool> allFunctionTools = FCUtil.getAllFunctionTools(tools);
+            List<Tool> allFunctionTools = contextHolder.getRuntime().toolRegistry().getAllFunctionTools(tools);
             apiRequestParams.setTools(allFunctionTools);
         }
         apiRequestParams.setMessages(messages);
@@ -337,7 +337,7 @@ public class BasicClient   {
 
         String modelAlias = contextHolder.getModelAlias();
         if (StringUtils.isBlank(modelAlias)) {
-            modelAlias = ApiProviderManage.getDefaultModel();
+            modelAlias = contextHolder.getRuntime().modelRegistry().getDefaultModel();
         }
         List<String> tools = contextHolder.getTools();
         String prompt = contextHolder.getPrompt();
@@ -345,12 +345,12 @@ public class BasicClient   {
 
         long begin = System.currentTimeMillis();
 
-        OpenAICompatibleChatService chatService = ApiProviderManage.getChatService(modelAlias);
+        OpenAICompatibleChatService chatService = contextHolder.getRuntime().modelRegistry().getChatService(modelAlias);
         List<ChatMessage> messages = buildMessages(history, prompt, tools);
 
         ApiRequestParams apiRequestParams = contextHolder.getRequestParams();
         if (tools != null && !tools.isEmpty()) {
-            List<Tool> allFunctionTools = FCUtil.getAllFunctionTools(tools);
+            List<Tool> allFunctionTools = contextHolder.getRuntime().toolRegistry().getAllFunctionTools(tools);
             apiRequestParams.setTools(allFunctionTools);
         }
         apiRequestParams.setMessages(messages);

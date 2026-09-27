@@ -37,8 +37,14 @@ import java.util.stream.Stream;
 @Slf4j
 public class VFS implements Workspace {
 
-    /** 全局配置，由 {@link #init(WorkspaceConfig)} 设置 */
+    /** 兼容 facade 用的全局配置，由 {@link #init(WorkspaceConfig)} 设置（默认运行时路径） */
     private static volatile WorkspaceConfig globalConfig;
+
+    /**
+     * 本实例所属工作空间的配置（P5 实例化）：由 {@code VfsService}（每个 KernelRuntime 一个）
+     * 注入 —— 数据目录因此按运行时隔离；{@code createZip} 形态（无服务）为 null，回落全局配置。
+     */
+    private final WorkspaceConfig config;
 
     /** 会话 ID */
     private final String sessionId;
@@ -88,20 +94,40 @@ public class VFS implements Workspace {
      * @return VFS 实例（实现了 Closeable，推荐 try-with-resources）
      */
     public static VFS load(String sessionId) {
-        if (globalConfig == null) {
+        // 兼容 facade：优先用静态 init 注入的配置（存量路径），
+        // 未 init 时回落默认运行时的 VfsService（跟随声明里的工作空间配置）
+        WorkspaceConfig cfg = globalConfig;
+        if (cfg == null || cfg.getDataDir() == null || cfg.getDataDir().isEmpty()) {
+            cfg = net.itzq.mira.modules.runtime.KernelRuntime.defaultRuntime().vfs().config();
+        }
+        if (cfg == null || cfg.getDataDir() == null || cfg.getDataDir().isEmpty()) {
             throw new IllegalStateException("VFS 未初始化，请先调用 VFS.init(config)");
         }
+        return loadWith(cfg, sessionId);
+    }
+
+    /**
+     * 按**指定配置**加载会话工作空间（P5 实例化路径）：由 {@code VfsService} 调用，
+     * 每个 KernelRuntime 用自己的 dataDir，实例间天然隔离。
+     */
+    static VFS loadWith(WorkspaceConfig config, String sessionId) {
+        if (config == null) {
+            throw new IllegalStateException("VFS 未初始化：配置为空");
+        }
+        if (config.getDataDir() == null || config.getDataDir().isEmpty()) {
+            throw new IllegalStateException("VFS 未初始化：dataDir 为空");
+        }
         validateSessionId(sessionId);
-        return new VFS(sessionId);
+        return new VFS(sessionId, config);
     }
 
     /**
      * 构建会话 zip 路径: {@code <dataDir>/ab/cd/<sessionId>.zip}
      */
-    private static String buildSessionZipPath(String sessionId) {
+    private static String buildSessionZipPath(WorkspaceConfig config, String sessionId) {
         String a = sessionId.substring(0, 2);
         String b = sessionId.substring(2, 4);
-        return globalConfig.getDataDir()
+        return config.getDataDir()
                 + File.separator + a
                 + File.separator + b
                 + File.separator + sessionId + ".zip";
@@ -110,21 +136,27 @@ public class VFS implements Workspace {
     /**
      * 构建会话 Lucene 索引路径: {@code <dataDir>/ab/cd/<sessionId>-vfs-lucene/}
      */
-    private static String buildSessionLucenePath(String sessionId) {
+    private static String buildSessionLucenePath(WorkspaceConfig config, String sessionId) {
         String a = sessionId.substring(0, 2);
         String b = sessionId.substring(2, 4);
-        return globalConfig.getDataDir()
+        return config.getDataDir()
                 + File.separator + a
                 + File.separator + b
                 + File.separator + sessionId + "-vfs-lucene";
     }
 
-    private VFS(String sessionId) {
+    private VFS(String sessionId, WorkspaceConfig config) {
         this.sessionId = sessionId;
-        this.zipFile = Paths.get(buildSessionZipPath(sessionId));
-        this.lucenePath = buildSessionLucenePath(sessionId);
-        this.luceneStorage = globalConfig.isLuceneEnabled() ? new LuceneStorage(lucenePath) : null;
+        this.config = config;
+        this.zipFile = Paths.get(buildSessionZipPath(config, sessionId));
+        this.lucenePath = buildSessionLucenePath(config, sessionId);
+        this.luceneStorage = config.isLuceneEnabled() ? new LuceneStorage(lucenePath) : null;
         log.debug("VFS 已创建（延迟初始化）: sessionId={}, zipFile={}, lucenePath={}", sessionId, zipFile, lucenePath);
+    }
+
+    /** 本实例生效的配置（会话实例持自身服务配置；createZip 形态回落全局配置） */
+    private WorkspaceConfig effectiveConfig() {
+        return config != null ? config : globalConfig;
     }
 
     // ==================== 1. 显式创建/打开（可选入口） ====================
@@ -132,14 +164,20 @@ public class VFS implements Workspace {
     public static VFS createZip(Path zipFile) throws IOException {
         // 注意：此方法创建的 VFS 没有 sessionId，不支持 Lucene 索引
         // 如需完整功能，请使用 VFS.load(sessionId)
-        return new VFS(null, zipFile);
+        return new VFS(null, zipFile, null);
+    }
+
+    /** 按指定配置创建 zip 形态会话（{@code VfsService.createZip} 用） */
+    static VFS createZipWith(Path zipFile, WorkspaceConfig config) throws IOException {
+        return new VFS(null, zipFile, config);
     }
 
     /**
      * 内部构造函数，用于 createZip 方法
      */
-    private VFS(String sessionId, Path zipFile) {
+    private VFS(String sessionId, Path zipFile, WorkspaceConfig config) {
         this.sessionId = sessionId;
+        this.config = config;
         this.zipFile = zipFile;
         this.lucenePath = null;
         this.luceneStorage = null;
@@ -604,7 +642,8 @@ public class VFS implements Workspace {
     @Override
     public List<SearchResult> search(String query, int resultSize) {
         // 未启用 Lucene 索引时，打印警告并返回空结果
-        if (!globalConfig.isLuceneEnabled() || luceneStorage == null) {
+        WorkspaceConfig cfg = effectiveConfig();
+        if (cfg == null || !cfg.isLuceneEnabled() || luceneStorage == null) {
             log.warn("Lucene 索引未启用，搜索返回空结果: query={}", query);
             return new ArrayList<>();
         }
@@ -612,7 +651,7 @@ public class VFS implements Workspace {
         List<ChunkMatch> chunkMatches = new ArrayList<>();
 
         // Lucene 全文检索（LuceneStorage 内部按需懒加载：仅打开已存在的索引，不创建新目录）
-        List<SearchResult> luceneResults = luceneStorage.search(query, globalConfig.getLuceneTopN());
+        List<SearchResult> luceneResults = luceneStorage.search(query, cfg.getLuceneTopN());
         for (SearchResult r : luceneResults) {
             chunkMatches.add(new ChunkMatch(r.getDocId(), 0, r.getScore(), "lucene"));
         }

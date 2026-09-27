@@ -7,8 +7,7 @@ import net.itzq.mira.modules.ai.tool.annotation.ToolParam;
 import net.itzq.mira.modules.ai.tool.ToolCallResult;
 import net.itzq.mira.modules.ai.skills.SkillBundle;
 import net.itzq.mira.modules.ai.skills.SkillEntity;
-import net.itzq.mira.modules.ai.skills.SkillManager;
-import net.itzq.mira.modules.config.GlobalConfigManager;
+import net.itzq.mira.modules.ai.skills.SkillRepository;
 import net.itzq.mira.modules.toolfun.ToolFun;
 
 import java.io.UncheckedIOException;
@@ -55,7 +54,7 @@ public class SkillTool {
             return ToolCallResult.error("技能不在本次可用范围: " + skill_name);
         }
 
-        SkillManager manager = SkillManager.getInstance();
+        SkillRepository manager = context.getRuntime().skills();
         if (!manager.isInitialized()) {
             return ToolCallResult.error("技能系统未初始化");
         }
@@ -109,7 +108,8 @@ public class SkillTool {
         }
 
         try {
-            SkillBundle bundle = SkillBundle.get(skill_name);
+            // P5 多实例：走**本运行时**的技能仓储（目录感知缓存），不再按全局目录取包
+            SkillBundle bundle = context.getRuntime().skills().getBundle(skill_name);
             if (!bundle.exists(file_path)) {
                 return ToolCallResult.error("文件不存在: " + skill_name + "/" + file_path);
             }
@@ -150,13 +150,14 @@ public class SkillTool {
             return ToolCallResult.error("技能不在本次可用范围: " + skill_name);
         }
 
-        String dataDir = GlobalConfigManager.config().getWorkspaceConfig().getDataDir();
+        String dataDir = context.getRuntime().declaration().getWorkspaceConfig().getDataDir();
         if (dataDir == null || dataDir.trim().isEmpty()) {
-            return ToolCallResult.error("无法展开技能包: GlobalConfigManager.config().getWorkspaceConfig().getDataDir() 未配置");
+            return ToolCallResult.error("无法展开技能包: 工作空间 dataDir 未配置");
         }
 
         try {
-            SkillBundle bundle = SkillBundle.get(skill_name);
+            // P5 多实例：走**本运行时**的技能仓储（目录感知缓存）
+            SkillBundle bundle = context.getRuntime().skills().getBundle(skill_name);
             Path target = Paths.get(dataDir, "skills-expand", skill_name).normalize();
             int count = bundle.expandTo(target);
             log.info("技能包已展开: {} -> {} ({} 个文件)", skill_name, target.toAbsolutePath(), count);

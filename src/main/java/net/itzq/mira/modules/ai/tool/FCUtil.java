@@ -1,456 +1,98 @@
 package net.itzq.mira.modules.ai.tool;
 
-import com.alibaba.fastjson2.JSONObject;
-import io.github.classgraph.*;
-import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.client.openai.tool.Tool;
-import net.itzq.mira.modules.ai.tool.annotation.ToolParam;
-import net.itzq.mira.modules.ai.http.HttpToolMeta;
-import net.itzq.mira.modules.ai.http.HttpToolRegistry;
-import net.itzq.mira.modules.ai.utils.JsonRepair;
-import net.itzq.mira.modules.toolfun.ToolFun;
+import net.itzq.mira.modules.runtime.KernelRuntime;
 
-import java.lang.reflect.Method;
-import java.lang.reflect.Parameter;
-import java.lang.reflect.Type;
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
- *  FCUtil
+ * FCUtil —— 工具注册表的**兼容 facade**（P5 实例化后保留）。
  *
- *  @author tangzq
+ * <p>P5 起工具注册表是实例组件 {@link ToolRegistry}（每个 {@code KernelRuntime} 一份，
+ * 独立隔离）。本类的全部静态方法**委托默认运行时的注册表**，因此存量调用点零改动。
+ *
+ * <p>新代码请改用 {@code holder.getRuntime().toolRegistry()}（多实例场景必须如此，
+ * 否则会写到默认实例上）。静态可变 Map 已移除——外部不再可能绕过注册表直写。
+ *
+ * @deprecated P5：迁移到 {@code holder.getRuntime().toolRegistry()}；本 facade 预期在
+ *             宿主/插件调用点清理完毕后删除。
  */
-@Slf4j
+@Deprecated
 public class FCUtil {
 
-    public static Map<String, Tool> toolEntityMap = new ConcurrentHashMap<>();
+    /** 来源：内核内置工具 */
+    public static final String SOURCE_CORE = ToolRegistry.SOURCE_CORE;
 
-    public static Map<String, Method> toolMethodMap = new ConcurrentHashMap<>();
+    /** 来源：未标注（向后兼容缺省值） */
+    public static final String SOURCE_UNKNOWN = ToolRegistry.SOURCE_UNKNOWN;
 
-    /** 工具类实例缓存，避免每次调用都创建新实例 */
-    private static final Map<Class<?>, Object> toolInstanceCache = new ConcurrentHashMap<>();
-
-    static {
-        scanTools(ToolFun.defaultToolFun());
+    private FCUtil() {
     }
 
-    /**
-     *  注册自定义工具
-     */
-    public static synchronized void registerTool(AiToolDefine aiTool) {
-        String functionName = aiTool.name();
-
-        if (toolMethodMap.containsKey(functionName)) {
-            log.warn("工具函数名重复，将被覆盖: {} (类: {})", functionName, aiTool.getClass().getName());
-        }
-
-        Method method = aiTool.executeMethod();
-        // 注册到 toolMethodMap，供后续 invoke / getFunctionEntity 使用
-        toolMethodMap.put(functionName, method);
-        toolEntityMap.put(functionName, buildToolEntity(aiTool));
-
-        log.info("【AiTool】注册成功: {} -> {}", functionName, aiTool.getClass().getSimpleName());
+    /** 默认运行时的工具注册表 */
+    private static ToolRegistry registry() {
+        return KernelRuntime.defaultRuntime().toolRegistry();
     }
 
-
-    private static Tool buildToolEntity(AiToolDefine aiTool) {
-        Tool.Function function = new Tool.Function();
-        function.setName(aiTool.name());
-        function.setDisplay(aiTool.display());
-        function.setSubAgent(aiTool.subAgent());
-        function.setDescription(aiTool.description());
-        function.setParameters(buildParameters(aiTool.parameters()));
-        Tool tool = new Tool();
-        tool.setType("function");
-        tool.setFunction(function);
-        return tool;
+    public static void registerTool(AiToolDefine aiTool) {
+        registry().registerTool(aiTool);
     }
 
-    private static Tool.Function.Parameter buildParameters(List<AiToolParam> params) {
-        Map<String, Tool.Function.Property> properties = new LinkedHashMap<>();
-        List<String> required = new ArrayList<>();
-        if (params != null) {
-            for (AiToolParam p : params) {
-                Tool.Function.Property prop = new Tool.Function.Property();
-                prop.setType(mapJavaTypeToJsonSchemaType(p.getType()));
-                prop.setDescription(p.getDescription());
-                if (p.getType().isEnum()) {
-                    prop.setEnumValues(getEnumValues(p.getType()));
-                }
-                properties.put(p.getName(), prop);
-                if (p.isRequired()) {
-                    required.add(p.getName());
-                }
-            }
-        }
-        return new Tool.Function.Parameter("object", properties, required);
+    public static void registerTool(AiToolDefine aiTool, String source) {
+        registry().registerTool(aiTool, source);
     }
 
-    /**
-     * 根据方法上的 @Tool / @ToolParam 注解构建 Tool 实体。
-     * 供 scanTools / scanAllTools 注册时以及 getToolEntity / getFunctionEntity 复用，避免重复反射构建。
-     *
-     * @param method 带有 @Tool 注解的方法
-     * @return 构建好的 Tool 实体；方法无 @Tool 注解时返回 null
-     */
-    private static Tool buildToolEntityFromMethod(Method method) {
-        net.itzq.mira.modules.ai.tool.annotation.Tool toolAnnotation =
-                method.getAnnotation(net.itzq.mira.modules.ai.tool.annotation.Tool.class);
-        if (toolAnnotation == null) {
-            return null;
-        }
-        Tool.Function function = new Tool.Function();
-        function.setName(toolAnnotation.name());
-        function.setSubAgent(toolAnnotation.subAgent());
-        function.setDisplay(toolAnnotation.display());
-        function.setDescription(toolAnnotation.description());
-        setFunctionParameters(function, method);
-
-        Tool tool = new Tool();
-        tool.setType("function");
-        tool.setFunction(function);
-        return tool;
-    }
-
-    /**
-     * 手动扫描指定的一个或多个工具类，注册其中带有 @Tool 注解的方法。
-     *
-     * @param toolClasses 包含一个或多个 @Tool 注解方法的工具类
-     */
     public static void scanTools(Class<?>... toolClasses) {
-        if (toolClasses == null || toolClasses.length == 0) {
-            log.warn("scanTools 未传入任何工具类，跳过扫描");
-            return;
-        }
-
-        long startTime = System.currentTimeMillis();
-        int registered = 0;
-
-        for (Class<?> clazz : toolClasses) {
-            if (clazz == null) {
-                continue;
-            }
-            for (Method method : clazz.getDeclaredMethods()) {
-                net.itzq.mira.modules.ai.tool.annotation.Tool toolAnnotation =
-                        method.getAnnotation(net.itzq.mira.modules.ai.tool.annotation.Tool.class);
-                if (toolAnnotation == null) {
-                    continue;
-                }
-                String functionName = toolAnnotation.name();
-                if (toolMethodMap.containsKey(functionName)) {
-                    log.warn("工具函数名重复，将被覆盖: {} (类: {})", functionName, clazz.getName());
-                }
-                // 注册到 toolMethodMap，供后续 invoke 使用
-                toolMethodMap.put(functionName, method);
-                toolEntityMap.put(functionName, buildToolEntityFromMethod(method));
-                registered++;
-                log.info("注册 Tool: {} (来自类: {})", functionName, clazz.getName());
-            }
-        }
-
-        long cost = System.currentTimeMillis() - startTime;
-        log.info("===== 手动扫描完成，共注册 {} 个 Tool，耗时: {}ms =====", registered, cost);
+        registry().scanTools(toolClasses);
     }
 
-    /**
-     * 使用 ClassGraph 扫描 Tool 方法
-     */
+    public static void scanTools(String source, Class<?>... toolClasses) {
+        registry().scanTools(source, toolClasses);
+    }
+
     public static void scanAllTools() {
+        registry().scanAllTools();
+    }
 
-        log.info("===== 开始使用 ClassGraph 扫描 Tool 方法 =====");
-        long startTime = System.currentTimeMillis();
+    public static Map<String, String> getToolSources() {
+        return registry().getToolSources();
+    }
 
-        try (ScanResult scanResult = new ClassGraph().enableClassInfo().enableMethodInfo() // 必须启用方法信息扫描
-                .enableAnnotationInfo().scan()) {
-
-            // 1. 获取所有包含带有 @Tool 注解方法的类
-            ClassInfoList classInfoList =
-                    scanResult.getClassesWithMethodAnnotation(net.itzq.mira.modules.ai.tool.annotation.Tool.class
-                    .getName());
-
-            for (ClassInfo classInfo : classInfoList) {
-                // 2. 遍历这些类的方法信息
-                for (MethodInfo methodInfo : classInfo.getDeclaredMethodInfo()) {
-
-                    // 3. 检查该方法是否确实带有 @Tool 注解
-                    AnnotationInfo toolAnnotationInfo =
-                            methodInfo.getAnnotationInfo(net.itzq.mira.modules.ai.tool.annotation.Tool.class
-                            .getName());
-
-                    if (toolAnnotationInfo != null) {
-                        try {
-                            // 4. 将 ClassGraph 的 MethodInfo 转换为 Java 原生的 Method 对象
-                            Method method = methodInfo.loadClassAndGetMethod();
-
-                            // 获取原生的注解对象，方便读取 name() 等属性
-                            net.itzq.mira.modules.ai.tool.annotation.Tool toolAnnotation = method.getAnnotation(
-                                    net.itzq.mira.modules.ai.tool.annotation.Tool.class);
-
-                            if (toolAnnotation != null) {
-                                String functionName = toolAnnotation.name();
-                                // 启动时直接缓存到 toolMethodMap 和 toolEntityMap
-                                toolMethodMap.put(functionName, method);
-                                toolEntityMap.put(functionName, buildToolEntityFromMethod(method));
-                                log.info("注册 Tool: {}", functionName);
-                            }
-                        } catch (Exception e) {
-                            log.error("加载 Tool 方法失败: {}.{}", classInfo.getName(), methodInfo.getName(), e);
-                        }
-                    }
-                }
-            }
-
-            long cost = System.currentTimeMillis() - startTime;
-            log.info("===== ClassGraph 扫描完成，共注册 {} 个 Tool，耗时: {}ms =====", toolMethodMap.size(), cost);
-
-        } catch (Exception e) {
-            log.error("ClassGraph 扫描类路径失败", e);
-        }
-
+    public static Map<String, List<String>> groupBySource() {
+        return registry().groupBySource();
     }
 
     public static String invoke(String functionName, String argument, AgentContextHolder contextHolder) {
-
-        long currentTimeMillis = System.currentTimeMillis();
-        log.info("【FC Begin】 function {}, argument {}", functionName, argument);
-
-        Method method = toolMethodMap.get(functionName);
-        if (method == null) {
-            log.warn("【FC Error】工具未注册: {}", functionName);
-            return "工具未注册: " + functionName;
-        }
-
-        JSONObject args = null;
-        try {
-            args = JSONObject.parseObject(argument);
-        } catch (Exception directParseEx) {
-            // 原始参数解析失败，尝试修复
-            log.debug("原始参数解析失败，尝试 JsonRepair 修复: {}", directParseEx.getMessage());
-            try {
-                String fixed = JsonRepair.autoFix(argument);
-                if (fixed != null) {
-                    argument = fixed;
-                }
-                args = JSONObject.parseObject(argument);
-            } catch (Exception repairEx) {
-                log.error("参数修复后仍无法解析: {}", argument, repairEx);
-                throw new RuntimeException("参数解析失败: " + repairEx.getMessage());
-            }
-        }
-
-        try {
-            List<Object> invokeParams = new ArrayList<>();
-
-            Class<?>[] parameterTypes = method.getParameterTypes();
-            Parameter[] parameters = method.getParameters();
-
-            boolean isHttpTool = false;
-
-            for (int i = 0; i < method.getParameterCount(); i++) {
-                Class<?> parameterType = parameterTypes[i];
-                if (parameterType == HttpToolMeta.class) {
-                    isHttpTool = true;
-                    break;
-                }
-            }
-
-            if (isHttpTool) {
-
-                HttpToolMeta httpToolMeta = HttpToolRegistry.get(functionName);
-
-                invokeParams.add(args);
-                invokeParams.add(contextHolder);
-                invokeParams.add(httpToolMeta);
-
-            } else {
-
-                for (int i = 0; i < method.getParameterCount(); i++) {
-                    Class<?> parameterType = parameterTypes[i];
-                    Parameter parameter = parameters[i];
-
-                    if (parameterType == AgentContextHolder.class) {
-                        invokeParams.add(contextHolder);
-                        continue;
-                    }
-
-                    ToolParam annotation = parameter.getAnnotation(ToolParam.class);
-                    if (annotation != null) {
-                        String key = parameter.getName();
-                        Object object = args.getObject(key, parameterType);
-                        invokeParams.add(object);
-                    } else {
-                        invokeParams.add(null);
-                    }
-                }
-
-            }
-
-            String response;
-            try {
-                Object toolInstance = toolInstanceCache.computeIfAbsent(
-                        method.getDeclaringClass(),
-                        cls -> {
-                            try {
-                                return cls.getDeclaredConstructor().newInstance();
-                            } catch (Exception e) {
-                                throw new RuntimeException("无法实例化工具类: " + cls.getName(), e);
-                            }
-                        }
-                );
-                Object invoke = method.invoke(toolInstance, invokeParams.toArray(new Object[] {}));
-
-                response = com.alibaba.fastjson2.JSON.toJSONString(invoke);
-            } catch (Exception e) {
-                log.error("ERROR", e);
-                // 统一协议 + 统一 JSON 序列化，两个问题一起解决：
-                // ① 形态：成功分支走 JSON.toJSONString(invoke)，异常分支原来是裸文本，
-                //    两种形态混在一起，前端只能靠关键词猜、还容易把 \\n 当转义；
-                //    统一成 JSON 字符串后，前端可以安全 JSON.parse。
-                // ② 标识：包成 [mira:err]，前端直接显示"调用失败"，不再猜文案。
-                Throwable cause = e.getCause() == null ? e : e.getCause();
-                String detail = cause.getMessage() == null
-                        ? cause.getClass().getSimpleName() : cause.getMessage();
-                response = com.alibaba.fastjson2.JSON.toJSONString(
-                        ToolCallResult.error(ToolCallResult.KERNEL_ERROR_PREFIX + detail));
-            }
-
-            log.info("【FC End】 function：{}, argument：{} result：{}", functionName, argument, response);
-
-            return response;
-        } catch (Exception e) {
-            log.error("调用方法失败", e);
-            throw new RuntimeException("调用方法失败");
-        }
-
+        return registry().invoke(functionName, argument, contextHolder);
     }
 
     public static List<Tool> getAllFunctionTools(List<String> functionList) {
-        List<Tool> tools = new ArrayList<>();
-        for (String functionName : functionList) {
-            Tool tool = toolEntityMap.get(functionName);
-            if (tool != null) {
-                tools.add(tool);
-            }
-        }
-        return !tools.isEmpty() ? tools : null;
+        return registry().getAllFunctionTools(functionList);
     }
 
     public static Tool getTool(String functionName) {
-        Tool tool = toolEntityMap.get(functionName);
-        return tool;
+        return registry().getTool(functionName);
     }
 
     public static Tool.Function getFunctionEntity(String functionName) {
-        Tool tool = getTool(functionName);
-        return tool != null ? tool.getFunction() : null;
-    }
-
-    private static void setFunctionParameters(Tool.Function function, Method method) {
-
-        Map<String, Tool.Function.Property> parameters = new LinkedHashMap<>();
-        List<String> requiredParameters = new ArrayList<>();
-
-        for (int i = 0; i < method.getParameterCount(); i++) {
-            String parameterName = method.getParameters()[i].getName();
-            Type parameterType = method.getGenericParameterTypes()[i];
-
-            Parameter parameter = method.getParameters()[i];
-            ToolParam toolParamAnnotation = parameter.getAnnotation(ToolParam.class);
-            if (toolParamAnnotation != null) {
-
-                if (toolParamAnnotation.required()) {
-                    requiredParameters.add(parameter.getName());
-                }
-
-                Class<?> fieldType = parameter.getType();
-                String jsonType = mapJavaTypeToJsonSchemaType(fieldType);
-                Tool.Function.Property property = new Tool.Function.Property();
-                property.setType(jsonType);
-                property.setDescription(toolParamAnnotation.description());
-                if (fieldType.isEnum()) {
-                    property.setEnumValues(getEnumValues(fieldType));
-                }
-                parameters.put(parameter.getName(), property);
-            }
-        }
-
-        Tool.Function.Parameter parameter = new Tool.Function.Parameter("object", parameters, requiredParameters);
-        function.setParameters(parameter);
-    }
-
-    /**
-     * 将Java类型映射到JSON Schema数据类型
-     */
-    private static String mapJavaTypeToJsonSchemaType(Class<?> fieldType) {
-        if (fieldType.isEnum()) {
-            return "string";
-        } else if (fieldType.equals(String.class)) {
-            return "string";
-        } else if (fieldType.equals(int.class) || fieldType.equals(Integer.class) || fieldType.equals(long.class)
-                || fieldType.equals(Long.class) || fieldType.equals(short.class) || fieldType.equals(Short.class)
-                || fieldType.equals(float.class) || fieldType.equals(Float.class) || fieldType.equals(double.class)
-                || fieldType.equals(Double.class)) {
-            return "number";
-        } else if (fieldType.equals(boolean.class) || fieldType.equals(Boolean.class)) {
-            return "boolean";
-        } else if (fieldType.isArray()) {
-            return "array";
-        } else if (Collection.class.isAssignableFrom(fieldType)) {
-            return "array";
-        } else if (Map.class.isAssignableFrom(fieldType)) {
-            return "object";
-        } else {
-            return "object";
-        }
-    }
-
-    /**
-     * 获取枚举类型的所有可能值
-     */
-    private static List<String> getEnumValues(Class<?> enumType) {
-        List<String> enumValues = new ArrayList<>();
-        for (Object enumConstant : enumType.getEnumConstants()) {
-            enumValues.add(enumConstant.toString());
-        }
-        return enumValues;
+        return registry().getFunctionEntity(functionName);
     }
 
     public static List<String> preLoadAllTools() {
-
-        List<String> fun = new ArrayList<>();
-
-        for (Map.Entry<String, Method> entry : toolMethodMap.entrySet()) {
-            String currentFunctionName = entry.getKey();
-            fun.add(currentFunctionName);
-        }
-
-        return fun;
+        return registry().preLoadAllTools();
     }
 
-    /**
-     * 获取所有已注册的工具名称列表（包括禁用的）
-     */
     public static List<String> getAllRegisteredToolNames() {
-        return new ArrayList<>(toolMethodMap.keySet());
+        return registry().getAllRegisteredToolNames();
     }
 
-    /**
-     * 卸载单个工具
-     */
-    public static synchronized void unregisterTool(String functionName) {
-        toolMethodMap.remove(functionName);
-        toolEntityMap.remove(functionName);
-        log.info("【AiTool】卸载工具: {}", functionName);
+    public static void unregisterTool(String functionName) {
+        registry().unregisterTool(functionName);
     }
 
-    /**
-     * 按前缀批量卸载工具（用于 HTTP 工具批量清理）
-     */
-    public static synchronized void unregisterByPrefix(String prefix) {
-        toolMethodMap.keySet().removeIf(k -> k != null && k.startsWith(prefix));
-        toolEntityMap.keySet().removeIf(k -> k != null && k.startsWith(prefix));
-        log.info("【AiTool】按前缀卸载工具: {}", prefix);
+    public static void unregisterByPrefix(String prefix) {
+        registry().unregisterByPrefix(prefix);
     }
 }

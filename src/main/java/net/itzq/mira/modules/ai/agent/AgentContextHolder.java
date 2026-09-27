@@ -43,6 +43,34 @@ public class AgentContextHolder {
     @Builder.Default
     List<ChatMessage> history = new ArrayList<>();
 
+    /**
+     * 持久化端口（编排运行时协议 SPI）：宿主实现注入；默认 NOOP = 即用即释放。
+     * 普通对话与工作流节点执行器共用同一端口实现。
+     */
+    @Builder.Default
+    net.itzq.mira.modules.ai.persistence.PersistencePort persistencePort =
+            net.itzq.mira.modules.ai.persistence.PersistencePort.NOOP;
+
+    /**
+     * 内核运行时（P5 实例化）：**唯一的接线点**——执行链路（agent / 事件 / 工具调用）
+     * 都从这里取声明、模型注册表、工具注册表、VFS、技能仓储，因此同进程多实例天然隔离。
+     *
+     * <p>默认 null：读取时回落 {@link KernelRuntime#defaultRuntime()}（存量行为承载者），
+     * 存量调用点因此无需改动。
+     */
+    private net.itzq.mira.modules.runtime.KernelRuntime runtime;
+
+    /** 生效的内核运行时（未显式指定 → 默认运行时） */
+    public net.itzq.mira.modules.runtime.KernelRuntime getRuntime() {
+        net.itzq.mira.modules.runtime.KernelRuntime rt = this.runtime;
+        return rt != null ? rt : net.itzq.mira.modules.runtime.KernelRuntime.defaultRuntime();
+    }
+
+    /** 是否显式指定了运行时（用于判断"多实例"场景） */
+    public boolean hasExplicitRuntime() {
+        return this.runtime != null;
+    }
+
 //    @Builder.Default
 //    ActionBlackboard actionBlackboard = new ActionBlackboard();
 

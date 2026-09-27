@@ -315,14 +315,14 @@ public class BasicAgent {
 
         String modelAlias = contextHolder.getModelAlias();
         if (StringUtils.isBlank(modelAlias)) {
-            modelAlias = ApiProviderManage.getDefaultModel();
+            modelAlias = contextHolder.getRuntime().modelRegistry().getDefaultModel();
         }
         List<String> tools = contextHolder.getTools();
         String prompt = contextHolder.getPrompt();
 
         long begin = System.currentTimeMillis();
 
-        OpenAICompatibleChatService chatService = ApiProviderManage.getChatService(modelAlias);
+        OpenAICompatibleChatService chatService = contextHolder.getRuntime().modelRegistry().getChatService(modelAlias);
         // 归一化副本不含系统提示词，此处统一补充
         List<ChatMessage> apiMessages = buildMessages(messages, prompt, tools);
         // 发送前兜底：为没有任何结果跟进的 tool_call 补占位（如 hook 挂起后用户跳过
@@ -331,7 +331,7 @@ public class BasicAgent {
 
         ApiRequestParams apiRequestParams = contextHolder.getRequestParams();
         if (tools != null && !tools.isEmpty()) {
-            List<Tool> allFunctionTools = FCUtil.getAllFunctionTools(tools);
+            List<Tool> allFunctionTools = contextHolder.getRuntime().toolRegistry().getAllFunctionTools(tools);
             apiRequestParams.setTools(allFunctionTools);
         }
         apiRequestParams.setMessages(apiMessages);
@@ -484,14 +484,14 @@ public class BasicAgent {
 
         String modelAlias = contextHolder.getModelAlias();
         if (StringUtils.isBlank(modelAlias)) {
-            modelAlias = ApiProviderManage.getDefaultModel();
+            modelAlias = contextHolder.getRuntime().modelRegistry().getDefaultModel();
         }
         List<String> tools = contextHolder.getTools();
         String prompt = contextHolder.getPrompt();
 
         long begin = System.currentTimeMillis();
 
-        OpenAICompatibleChatService chatService = ApiProviderManage.getChatService(modelAlias);
+        OpenAICompatibleChatService chatService = contextHolder.getRuntime().modelRegistry().getChatService(modelAlias);
         // 归一化副本不含系统提示词，此处统一补充
         List<ChatMessage> apiMessages = buildMessages(messages, prompt, tools);
         // 发送前兜底：为没有任何结果跟进的 tool_call 补占位（与 handleAIStream 同规则）
@@ -499,7 +499,7 @@ public class BasicAgent {
 
         ApiRequestParams apiRequestParams = contextHolder.getRequestParams();
         if (tools != null && !tools.isEmpty()) {
-            List<Tool> allFunctionTools = FCUtil.getAllFunctionTools(tools);
+            List<Tool> allFunctionTools = contextHolder.getRuntime().toolRegistry().getAllFunctionTools(tools);
             apiRequestParams.setTools(allFunctionTools);
         }
         apiRequestParams.setMessages(apiMessages);
@@ -701,10 +701,10 @@ public class BasicAgent {
     private boolean isCurrentModelImageSupported() {
         String modelAlias = contextHolder.getModelAlias();
         if (StringUtils.isBlank(modelAlias)) {
-            modelAlias = ApiProviderManage.getDefaultModel();
+            modelAlias = contextHolder.getRuntime().modelRegistry().getDefaultModel();
         }
         try {
-            OpenAICompatibleChatService chatService = ApiProviderManage.getChatService(modelAlias, false);
+            OpenAICompatibleChatService chatService = contextHolder.getRuntime().modelRegistry().getChatService(modelAlias, false);
             if (chatService == null || chatService.getConfig() == null) {
                 return true;
             }
@@ -1302,7 +1302,7 @@ public class BasicAgent {
                 } else if (!caneUse) {
                     result = ToolCallResult.error("工具不存在：" + functionName);
                 } else {
-                    result = FCUtil.invoke(functionName, arguments, contextHolder);
+                    result = contextHolder.getRuntime().toolRegistry().invoke(functionName, arguments, contextHolder);
                 }
 
                 appendHistory(ChatMessage.withTool(toolMsgId + "\n\n" + result, toolCall.getId()));

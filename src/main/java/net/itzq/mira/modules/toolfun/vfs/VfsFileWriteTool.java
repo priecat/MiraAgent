@@ -46,7 +46,7 @@ public class VfsFileWriteTool {
             return ToolCallResult.error("写入失败: 虚拟文件系统未初始化");
         }
 
-        try (VFS vfs = VFS.load(contextHolder.getVfsId())) {
+        try (VFS vfs = contextHolder.getRuntime().vfs().loadVfs(contextHolder.getVfsId())) {
 
             boolean exists = vfs.exists(filePath);
 

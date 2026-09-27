@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.modules.ai.client.config.ModelApiConfig;
 import net.itzq.mira.modules.ai.client.sse.HttpResp;
 import net.itzq.mira.modules.ai.client.sse.HttpSSEClient;
+import net.itzq.mira.modules.config.SseClientConfig;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.LinkedHashMap;
@@ -27,8 +28,16 @@ public class OpenAICompatibleImageService {
 
     private final ModelApiConfig config;
 
+    /** SSE 超时快照（P5 多实例）：所属运行时的声明，请求时传给 HttpSSEClient */
+    private final SseClientConfig sseTimeouts;
+
     public OpenAICompatibleImageService(ModelApiConfig config) {
+        this(config, HttpSSEClient.defaultTimeouts());
+    }
+
+    public OpenAICompatibleImageService(ModelApiConfig config, SseClientConfig timeouts) {
         this.config = config;
+        this.sseTimeouts = timeouts == null ? HttpSSEClient.defaultTimeouts() : timeouts;
         this.httpSSEClient = HttpSSEClient.getInstance();
     }
 
@@ -40,7 +49,7 @@ public class OpenAICompatibleImageService {
      */
     public HttpResp generate(String jsonBody) {
         String url = config.getApiHost() + endpoint();
-        return httpSSEClient.postJsonSyncDetailed(url, jsonBody, buildHeaders());
+        return httpSSEClient.postJsonSyncDetailed(url, jsonBody, buildHeaders(), sseTimeouts);
     }
 
     /**

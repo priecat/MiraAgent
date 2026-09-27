@@ -35,10 +35,10 @@ public class HttpSSEClient {
 
     /** 异步 SSE 请求线程池 */
     private volatile ExecutorService executorService;
-    /** 连接超时（毫秒） */
-    private volatile int connectTimeoutMs;
-    /** 读取超时（毫秒） */
-    private volatile int readTimeoutMs;
+    // P5 多实例：超时不再在构造期固定。SSE 客户端是进程级共享基础设施（线程池共享），
+    // 而超时是 per-runtime 的声明配置——核心方法提供带 SseClientConfig 的重载
+    // （service 构造时从**自己的**运行时解析快照）；旧签名走 defaultTimeouts()，
+    // 每次请求从默认运行时声明读取，声明后置变更即时生效。
 
     // ==================== 构造与初始化 ====================
 
@@ -47,12 +47,7 @@ public class HttpSSEClient {
     }
 
     private void init() {
-        SseClientConfig cfg = GlobalConfigManager.config().getSseClientSimpleConfig();
-        if (cfg == null) {
-            cfg = new SseClientConfig();
-        }
-        this.connectTimeoutMs = cfg.getConnectTimeoutMs();
-        this.readTimeoutMs = cfg.getReadTimeoutMs();
+        // 只负责线程池；超时在每次请求时解析（见 defaultTimeouts 与各方法的重载）
 
         // 关闭旧线程池
         if (this.executorService != null && !this.executorService.isShutdown()) {
@@ -97,6 +92,17 @@ public class HttpSSEClient {
         }
     }
 
+    /** 默认超时（调用时读取默认运行时声明；未配置时取 {@link SseClientConfig} 的默认值） */
+    public static SseClientConfig defaultTimeouts() {
+        try {
+            SseClientConfig cfg = GlobalConfigManager.config().getSseClientSimpleConfig();
+            return cfg != null ? cfg : new SseClientConfig();
+        } catch (Exception e) {
+            log.warn("读取 SSE 客户端配置失败，使用默认超时: {}", e.getMessage());
+            return new SseClientConfig();
+        }
+    }
+
     // ==================== 同步请求方法 ====================
 
     /**
@@ -117,10 +123,11 @@ public class HttpSSEClient {
      * @return 响应字符串
      */
     public String getSync(String url, Map<String, String> headers) {
+        SseClientConfig timeouts = defaultTimeouts();
         try {
             HttpRequest request = HttpRequest.get(url)
-                    .setConnectionTimeout(connectTimeoutMs)
-                    .setReadTimeout(readTimeoutMs);
+                    .setConnectionTimeout(timeouts.getConnectTimeoutMs())
+                    .setReadTimeout(timeouts.getReadTimeoutMs());
             addHeaders(request, headers);
             try (HttpResponse response = request.execute()) {
                 return handleResponse(response);
@@ -175,10 +182,19 @@ public class HttpSSEClient {
      * 同步POST请求（JSON格式，带请求头）
      */
     public String postJsonSync(String url, String jsonBody, Map<String, String> headers) {
+        return postJsonSync(url, jsonBody, headers, defaultTimeouts());
+    }
+
+    /**
+     * 同步POST请求（JSON格式，带请求头与**显式超时**）。
+     * P5 多实例：调用方（各 OpenAI 兼容 service）传自己运行时的配置快照。
+     */
+    public String postJsonSync(String url, String jsonBody, Map<String, String> headers,
+            SseClientConfig timeouts) {
         try {
             HttpRequest request = HttpRequest.post(url)
-                    .setConnectionTimeout(connectTimeoutMs)
-                    .setReadTimeout(readTimeoutMs)
+                    .setConnectionTimeout(timeouts.getConnectTimeoutMs())
+                    .setReadTimeout(timeouts.getReadTimeoutMs())
                     .header("Content-Type", "application/json")
                     .body(jsonBody);
             addHeaders(request, headers);
@@ -206,10 +222,11 @@ public class HttpSSEClient {
      * 同步POST请求（表单格式，带请求头）
      */
     public String postFormSync(String url, Map<String, String> formParams, Map<String, String> headers) {
+        SseClientConfig timeouts = defaultTimeouts();
         try {
             HttpRequest request = HttpRequest.post(url)
-                    .setConnectionTimeout(connectTimeoutMs)
-                    .setReadTimeout(readTimeoutMs)
+                    .setConnectionTimeout(timeouts.getConnectTimeoutMs())
+                    .setReadTimeout(timeouts.getReadTimeoutMs())
                     .header("Content-Type", "application/x-www-form-urlencoded");
             if (formParams != null && !formParams.isEmpty()) {
                 formParams.forEach(request::form);
@@ -236,10 +253,16 @@ public class HttpSSEClient {
      * @return HttpResp（status + bodyUtf8 + contentType）
      */
     public HttpResp postJsonSyncDetailed(String url, String jsonBody, Map<String, String> headers) {
+        return postJsonSyncDetailed(url, jsonBody, headers, defaultTimeouts());
+    }
+
+    /** 同步POST（结构化响应，**显式超时**）；非 2xx 不抛异常，由调用方按 status 判定 */
+    public HttpResp postJsonSyncDetailed(String url, String jsonBody, Map<String, String> headers,
+            SseClientConfig timeouts) {
         try {
             HttpRequest request = HttpRequest.post(url)
-                    .setConnectionTimeout(connectTimeoutMs)
-                    .setReadTimeout(readTimeoutMs)
+                    .setConnectionTimeout(timeouts.getConnectTimeoutMs())
+                    .setReadTimeout(timeouts.getReadTimeoutMs())
                     .header("Content-Type", "application/json")
                     .body(jsonBody);
             addHeaders(request, headers);
@@ -261,10 +284,16 @@ public class HttpSSEClient {
      * @return HttpResp（status + bodyBytes + contentType）
      */
     public HttpResp postJsonSyncBytes(String url, String jsonBody, Map<String, String> headers) {
+        return postJsonSyncBytes(url, jsonBody, headers, defaultTimeouts());
+    }
+
+    /** 同步POST（二进制响应，**显式超时**），audio/speech 等端点用 */
+    public HttpResp postJsonSyncBytes(String url, String jsonBody, Map<String, String> headers,
+            SseClientConfig timeouts) {
         try {
             HttpRequest request = HttpRequest.post(url)
-                    .setConnectionTimeout(connectTimeoutMs)
-                    .setReadTimeout(readTimeoutMs)
+                    .setConnectionTimeout(timeouts.getConnectTimeoutMs())
+                    .setReadTimeout(timeouts.getReadTimeoutMs())
                     .header("Content-Type", "application/json")
                     .body(jsonBody);
             addHeaders(request, headers);
@@ -287,10 +316,16 @@ public class HttpSSEClient {
      * @return HttpResp（status + bodyUtf8）
      */
     public HttpResp postMultipartSync(String url, List<FormPart> parts, Map<String, String> headers) {
+        return postMultipartSync(url, parts, headers, defaultTimeouts());
+    }
+
+    /** 同步POST multipart/form-data（文件上传，**显式超时**） */
+    public HttpResp postMultipartSync(String url, List<FormPart> parts, Map<String, String> headers,
+            SseClientConfig timeouts) {
         try {
             HttpRequest request = HttpRequest.post(url)
-                    .setConnectionTimeout(connectTimeoutMs)
-                    .setReadTimeout(readTimeoutMs);
+                    .setConnectionTimeout(timeouts.getConnectTimeoutMs())
+                    .setReadTimeout(timeouts.getReadTimeoutMs());
             if (parts != null) {
                 for (FormPart part : parts) {
                     if (part == null || part.getName() == null) {
@@ -421,10 +456,19 @@ public class HttpSSEClient {
      */
     public CompletableFuture<Void> postSse(String url, String body, Map<String, String> headers,
             HttpStreamEventInterface eventHandler) {
+        return postSse(url, body, headers, eventHandler, defaultTimeouts());
+    }
+
+    /**
+     * 发送POST SSE请求（**显式超时**）。P5 多实例：调用方传自己运行时的配置快照；
+     * 线程池仍为进程级共享基础设施。
+     */
+    public CompletableFuture<Void> postSse(String url, String body, Map<String, String> headers,
+            HttpStreamEventInterface eventHandler, SseClientConfig timeouts) {
         CompletableFuture<Void> future = new CompletableFuture<>();
         HttpStreamEventInterface wrapped = wrapHandler(eventHandler, future);
         try {
-            executorService.submit(() -> executeSsePost(url, body, headers, wrapped));
+            executorService.submit(() -> executeSsePost(url, body, headers, wrapped, timeouts));
         } catch (Exception e) {
             log.error("提交POST SSE请求任务失败: {}", e.getMessage(), e);
             future.completeExceptionally(e);
@@ -471,10 +515,11 @@ public class HttpSSEClient {
      * 执行 SSE GET 请求
      */
     private void executeSseGet(String url, Map<String, String> headers, HttpStreamEventInterface eventHandler) {
+        SseClientConfig timeouts = defaultTimeouts();
         try {
             HttpRequest request = HttpRequest.get(url)
-                    .setConnectionTimeout(connectTimeoutMs)
-                    .setReadTimeout(readTimeoutMs)
+                    .setConnectionTimeout(timeouts.getConnectTimeoutMs())
+                    .setReadTimeout(timeouts.getReadTimeoutMs())
                     .header("Accept", "text/event-stream")
                     .header("Cache-Control", "no-cache")
                     .header("Accept-Encoding", "identity");
@@ -490,11 +535,11 @@ public class HttpSSEClient {
      * 执行 SSE POST 请求
      */
     private void executeSsePost(String url, String body, Map<String, String> headers,
-            HttpStreamEventInterface eventHandler) {
+            HttpStreamEventInterface eventHandler, SseClientConfig timeouts) {
         try {
             HttpRequest request = HttpRequest.post(url)
-                    .setConnectionTimeout(connectTimeoutMs)
-                    .setReadTimeout(readTimeoutMs)
+                    .setConnectionTimeout(timeouts.getConnectTimeoutMs())
+                    .setReadTimeout(timeouts.getReadTimeoutMs())
                     .header("Accept", "text/event-stream")
                     .header("Cache-Control", "no-cache")
                     .header("Accept-Encoding", "identity")

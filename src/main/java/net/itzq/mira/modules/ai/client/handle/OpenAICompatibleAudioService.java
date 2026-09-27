@@ -5,6 +5,7 @@ import net.itzq.mira.modules.ai.client.config.ModelApiConfig;
 import net.itzq.mira.modules.ai.client.sse.FormPart;
 import net.itzq.mira.modules.ai.client.sse.HttpResp;
 import net.itzq.mira.modules.ai.client.sse.HttpSSEClient;
+import net.itzq.mira.modules.config.SseClientConfig;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.LinkedHashMap;
@@ -32,8 +33,16 @@ public class OpenAICompatibleAudioService {
 
     private final ModelApiConfig config;
 
+    /** SSE 超时快照（P5 多实例）：所属运行时的声明，请求时传给 HttpSSEClient */
+    private final SseClientConfig sseTimeouts;
+
     public OpenAICompatibleAudioService(ModelApiConfig config) {
+        this(config, HttpSSEClient.defaultTimeouts());
+    }
+
+    public OpenAICompatibleAudioService(ModelApiConfig config, SseClientConfig timeouts) {
         this.config = config;
+        this.sseTimeouts = timeouts == null ? HttpSSEClient.defaultTimeouts() : timeouts;
         this.httpSSEClient = HttpSSEClient.getInstance();
     }
 
@@ -59,7 +68,7 @@ public class OpenAICompatibleAudioService {
             }
         }
         String url = config.getApiHost() + endpoint();
-        return httpSSEClient.postMultipartSync(url, parts, headers);
+        return httpSSEClient.postMultipartSync(url, parts, headers, sseTimeouts);
     }
 
     /**
@@ -70,7 +79,7 @@ public class OpenAICompatibleAudioService {
      */
     public HttpResp speech(String jsonBody) {
         String url = config.getApiHost() + endpoint();
-        return httpSSEClient.postJsonSyncBytes(url, jsonBody, buildHeaders());
+        return httpSSEClient.postJsonSyncBytes(url, jsonBody, buildHeaders(), sseTimeouts);
     }
 
     private String endpoint() {

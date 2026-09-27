@@ -98,7 +98,7 @@ public class VfsGrepTool {
             return ToolCallResult.error("搜索失败: 虚拟文件系统未初始化");
         }
 
-        try (VFS vfs = VFS.load(contextHolder.getVfsId())) {
+        try (VFS vfs = contextHolder.getRuntime().vfs().loadVfs(contextHolder.getVfsId())) {
             FileSystem fs = vfs.getFileSystemForRead();
             if (fs == null) {
                 return ToolCallResult.success("虚拟文件系统为空，尚无文件可搜索。建议先使用写入工具上传或创建文件后再搜索。");

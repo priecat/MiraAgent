@@ -209,7 +209,7 @@ public abstract class DefaultEventListener implements EventListener, IEmitter {
         if (toolCall != null) {
             try {
                 String functionName = toolCall.getFunction().getName();
-                Tool tool = FCUtil.getTool(functionName);
+                Tool tool = context.getRuntime().toolRegistry().getTool(functionName);
                 String display = tool.getFunction().getDisplay();
                 info.put("toolName", display);
                 info.put("funName", functionName);
@@ -255,7 +255,7 @@ public abstract class DefaultEventListener implements EventListener, IEmitter {
         if (toolCall != null) {
             try {
                 String functionName = toolCall.getFunction().getName();
-                Tool tool = FCUtil.getTool(functionName);
+                Tool tool = context.getRuntime().toolRegistry().getTool(functionName);
                 String display = tool.getFunction().getDisplay();
                 info.put("toolName", display);
                 info.put("funName", functionName);

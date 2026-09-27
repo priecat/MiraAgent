@@ -7,10 +7,13 @@ import net.itzq.mira.modules.toolfun.ToolFun;
 import org.apache.commons.lang3.StringUtils;
 
 /**
- * ChatAgent - 问答agent
+ * ChatAgent - 问答agent（只读：不挂工具，仅装配提示词）
  *
  * @created 2026/7/23 0:13
+ * @deprecated 2026-09-25：改用 {@link AutoAgent}（构造纯净、装配显式、工具集可声明为只读）。
+ *             本类保留仅为兼容既有调用；预期后续版本删除。
  */
+@Deprecated
 @Slf4j
 public class ChatAgent extends BasicAgent {
 
@@ -35,13 +38,24 @@ public class ChatAgent extends BasicAgent {
         contextHolder.setPrompt(prompt);
     }
 
+    /** @deprecated 改用 {@link AutoAgent#getDefaultVfsReadTools()} */
+    @Deprecated
     public static String[] getDefaultVfsTools() {
-        return new String[] {
-                ToolFun.Tool_VFS_Glob,
-                ToolFun.Tool_VFS_Grep,
-                ToolFun.Tool_VFS_File_Read,
-                ToolFun.Tool_VFS_List_Files,
-                ToolFun.TOOL_VFS_Explorer };
+        return AutoAgent.getDefaultVfsReadTools();
+    }
+
+    // ==================== sys 工具包基线（已迁 AutoAgent，此处仅兼容委托） ====================
+
+    /** @deprecated 改用 {@link AutoAgent#systemBaselineCoreTools()} */
+    @Deprecated
+    public static java.util.List<String> systemBaselineCoreTools() {
+        return AutoAgent.systemBaselineCoreTools();
+    }
+
+    /** @deprecated 改用 {@link AutoAgent#systemBaselineTools(java.util.Collection)} */
+    @Deprecated
+    public static java.util.List<String> systemBaselineTools(java.util.Collection<String> hostExtras) {
+        return AutoAgent.systemBaselineTools(hostExtras);
     }
 
     /**

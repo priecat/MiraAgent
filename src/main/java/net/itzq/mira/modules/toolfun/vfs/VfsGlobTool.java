@@ -55,7 +55,7 @@ public class VfsGlobTool {
             return ToolCallResult.error("错误: 虚拟文件系统未初始化");
         }
 
-        try (VFS vfs = VFS.load(contextHolder.getVfsId())) {
+        try (VFS vfs = contextHolder.getRuntime().vfs().loadVfs(contextHolder.getVfsId())) {
             FileSystem fs = vfs.getFileSystemForRead();
             if (fs == null) {
                 return ToolCallResult.success("虚拟文件系统为空，尚无文件。建议先使用写入工具上传或创建文件后再搜索。");

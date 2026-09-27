@@ -52,7 +52,7 @@ public class VfsFileEditTool {
             return ToolCallResult.error("编辑失败: 虚拟文件系统未初始化");
         }
 
-        try (VFS vfs = VFS.load(contextHolder.getVfsId())) {
+        try (VFS vfs = contextHolder.getRuntime().vfs().loadVfs(contextHolder.getVfsId())) {
             // 验证 1: 文件存在
             if (!vfs.exists(filePath)) {
                 return ToolCallResult.error(String.format("编辑失败: 文件不存在 —— %s", filePath));

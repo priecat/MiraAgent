@@ -70,7 +70,7 @@ public class VfsFileReadTool {
             return ToolCallResult.error("读取失败: 虚拟文件系统未初始化");
         }
 
-        try (VFS vfs = VFS.load(contextHolder.getVfsId())) {
+        try (VFS vfs = contextHolder.getRuntime().vfs().loadVfs(contextHolder.getVfsId())) {
 
             // 文件存在性检查
             if (!vfs.exists(filePath)) {

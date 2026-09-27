@@ -1,149 +1,72 @@
 package net.itzq.mira.modules.ai.skills;
 
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
+import net.itzq.mira.modules.runtime.KernelRuntime;
 
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Collection;
+import java.util.List;
 
 /**
- * 技能管理器，单例模式，管理技能注册表
+ * SkillManager —— 技能仓储的**兼容 facade**（P5 实例化后保留）。
+ *
+ * <p>P5 起仓储是实例组件 {@link SkillRepository}（每个 {@code KernelRuntime} 一份，
+ * 可指向不同 skillsDir）。本类静态方法全部委托默认运行时的仓储，存量调用点零改动。
+ *
+ * @deprecated P5：改用 {@code holder.getRuntime().skills()}。
  */
-@Slf4j
-public class SkillManager  {
-
-    private static final SkillManager INSTANCE = new SkillManager();
-
-    /** 技能注册表 slug -> SkillEntity */
-    private final Map<String, SkillEntity> skillRegistry = new ConcurrentHashMap<>();
-
-    /** 触发词索引 trigger -> List<slug> */
-    private final Map<String, List<String>> triggerIndex = new ConcurrentHashMap<>();
-
-    /** 是否已初始化 */
-    private volatile boolean initialized = false;
+@Deprecated
+public class SkillManager {
 
     private SkillManager() {
     }
 
-    public static SkillManager getInstance() {
-        return INSTANCE;
+    private static SkillRepository repository() {
+        return KernelRuntime.defaultRuntime().skills();
     }
 
-    /**
-     * 初始化，加载默认目录下的所有技能
-     */
-    public synchronized void init(String skillsDirPath) {
-        if (initialized) {
-            return;
-        }
-        SkillBundle.setSkillDir(skillsDirPath);
-        List<SkillEntity> skills = SkillLoader.loadSkills(skillsDirPath);
-        for (SkillEntity skill : skills) {
-            registerSkill(skill);
-        }
-        initialized = true;
-        log.info("SkillManager 初始化完成，共注册 {} 个技能", skillRegistry.size());
+    /** 兼容入口：返回默认运行时的技能仓储（原单例语义的等价物） */
+    public static SkillRepository getInstance() {
+        return repository();
     }
 
-    /**
-     * 关闭所有SkillBundle，释放资源
-     */
-    public void shutdown() {
-        SkillBundle.closeAll();
-        skillRegistry.clear();
-        triggerIndex.clear();
-        initialized = false;
+    /** 初始化默认运行时的技能仓储（幂等） */
+    public static void init(String skillsDirPath) {
+        repository().init(skillsDirPath);
     }
 
-    /**
-     * 注册单个技能
-     */
-    public void registerSkill(SkillEntity skill) {
-        if (skill == null || StringUtils.isBlank(skill.getSlug())) {
-            return;
-        }
-        skillRegistry.put(skill.getSlug(), skill);
-        // 建立触发词索引
-        if (skill.getTriggers() != null) {
-            for (String trigger : skill.getTriggers()) {
-                triggerIndex.computeIfAbsent(trigger.toLowerCase(), k -> new ArrayList<>()).add(skill.getSlug());
-            }
-        }
+    /** 关闭默认运行时的技能仓储 */
+    public static void shutdown() {
+        repository().shutdown();
     }
 
-    /**
-     * 按slug获取技能
-     */
-    public SkillEntity getSkill(String slug) {
-        return skillRegistry.get(slug);
+    public static void registerSkill(SkillEntity skill) {
+        repository().registerSkill(skill);
     }
 
-    /**
-     * 获取所有已注册技能
-     */
-    public Collection<SkillEntity> getAllSkills() {
-        return skillRegistry.values();
+    public static SkillEntity getSkill(String slug) {
+        return repository().getSkill(slug);
     }
 
-    /**
-     * 获取所有已注册技能的slug列表
-     */
-    public List<String> getAllSkillSlugs() {
-        return new ArrayList<>(skillRegistry.keySet());
+    public static Collection<SkillEntity> getAllSkills() {
+        return repository().getAllSkills();
     }
 
-    /**
-     * 根据用户输入匹配技能（基于触发词）
-     */
-    public List<SkillEntity> matchSkills(String userInput) {
-        if (StringUtils.isBlank(userInput)) {
-            return Collections.emptyList();
-        }
-        String lowerInput = userInput.toLowerCase();
-        Set<SkillEntity> matched = new LinkedHashSet<>();
-        for (Map.Entry<String, List<String>> entry : triggerIndex.entrySet()) {
-            if (lowerInput.contains(entry.getKey().toLowerCase())) {
-                for (String slug : entry.getValue()) {
-                    SkillEntity skill = skillRegistry.get(slug);
-                    if (skill != null) {
-                        matched.add(skill);
-                    }
-                }
-            }
-        }
-        return new ArrayList<>(matched);
+    public static List<String> getAllSkillSlugs() {
+        return repository().getAllSkillSlugs();
     }
 
-    /**
-     * 生成所有技能的摘要列表（用于系统提示词）
-     */
-    public String buildSkillsSummary() {
-        if (skillRegistry.isEmpty()) {
-            return "";
-        }
-        StringBuilder sb = new StringBuilder();
-        for (SkillEntity skill : skillRegistry.values()) {
-            sb.append(skill.toSummary()).append("\n");
-        }
-        return sb.toString().trim();
+    public static List<SkillEntity> matchSkills(String userInput) {
+        return repository().matchSkills(userInput);
     }
 
-    /**
-     * 获取技能的完整内容
-     */
-    public String getSkillContent(String slug) {
-        SkillEntity skill = skillRegistry.get(slug);
-        if (skill == null) {
-            return "技能不存在: " + slug;
-        }
-        return skill.getContent();
+    public static String buildSkillsSummary() {
+        return repository().buildSkillsSummary();
     }
 
-    /**
-     * 检查是否已初始化
-     */
-    public boolean isInitialized() {
-        return initialized;
+    public static String getSkillContent(String slug) {
+        return repository().getSkillContent(slug);
+    }
+
+    public static boolean isInitialized() {
+        return repository().isInitialized();
     }
 }

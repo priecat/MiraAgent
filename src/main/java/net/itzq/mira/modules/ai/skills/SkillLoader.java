@@ -44,7 +44,8 @@ public class SkillLoader  {
         for (File zipFile : zipFiles) {
             String skillName = zipFile.getName().replace(".zip", "");
             try {
-                SkillBundle bundle = SkillBundle.get(skillName);
+                // 目录感知缓存：zip 来源随传入的 skillsDirPath 走（多实例不串）
+                SkillBundle bundle = SkillBundle.get(skillsDirPath, skillName);
                 SkillEntity skill = loadSkill(bundle);
                 if (skill != null) {
                     skills.add(skill);
