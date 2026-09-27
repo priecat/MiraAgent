@@ -13,12 +13,6 @@ public class WorkspaceConfig {
     /** 数据根目录 */
     private String dataDir = null;
 
-    /** Lucene 搜索返回结果数 */
-    private int luceneTopN = WorkspaceConstants.DEFAULT_LUCENE_TOP_N;
-
-    /** 是否启用 Lucene 全文索引（默认禁用） */
-    private boolean luceneEnabled = false;
-
     /**
      * 映射根目录（虚拟路径风格，如 /workspace）。
      * 用于把"真实磁盘路径"映射为一个外部可识别的逻辑路径：

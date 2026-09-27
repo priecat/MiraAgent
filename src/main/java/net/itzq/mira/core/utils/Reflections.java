@@ -1,8 +1,6 @@
 package net.itzq.mira.core.utils;
 
 import java.util.Objects;
-import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.Validate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -133,8 +131,12 @@ public class Reflections {
 	 * 如向上转型到Object仍无法找到, 返回null.
 	 */
 	public static Field getAccessibleField(final Object obj, final String fieldName) {
-		Validate.notNull(obj, "object can't be null");
-		Validate.notBlank(fieldName, "fieldName can't be blank");
+		if (obj == null) {
+			throw new IllegalArgumentException("object can't be null");
+		}
+		if (StringUtils.isBlank(fieldName)) {
+			throw new IllegalArgumentException("fieldName can't be blank");
+		}
 		for (Class<?> superClass = obj.getClass(); superClass != Object.class; superClass = superClass.getSuperclass()) {
 			try {
 				Field field = superClass.getDeclaredField(fieldName);
@@ -157,8 +159,12 @@ public class Reflections {
 	 */
 	public static Method getAccessibleMethod(final Object obj, final String methodName,
 			final Class<?>... parameterTypes) {
-		Validate.notNull(obj, "object can't be null");
-		Validate.notBlank(methodName, "methodName can't be blank");
+		if (obj == null) {
+			throw new IllegalArgumentException("object can't be null");
+		}
+		if (StringUtils.isBlank(methodName)) {
+			throw new IllegalArgumentException("methodName can't be blank");
+		}
 
 		for (Class<?> searchType = obj.getClass(); searchType != Object.class; searchType = searchType.getSuperclass()) {
 			try {
@@ -181,8 +187,12 @@ public class Reflections {
 	 * 用于方法需要被多次调用的情况. 先使用本函数先取得Method,然后调用Method.invoke(Object obj, Object... args)
 	 */
 	public static Method getAccessibleMethodByName(final Object obj, final String methodName) {
-		Validate.notNull(obj, "object can't be null");
-		Validate.notBlank(methodName, "methodName can't be blank");
+		if (obj == null) {
+			throw new IllegalArgumentException("object can't be null");
+		}
+		if (StringUtils.isBlank(methodName)) {
+			throw new IllegalArgumentException("methodName can't be blank");
+		}
 
 		for (Class<?> searchType = obj.getClass(); searchType != Object.class; searchType = searchType.getSuperclass()) {
 			Method[] methods = searchType.getDeclaredMethods();

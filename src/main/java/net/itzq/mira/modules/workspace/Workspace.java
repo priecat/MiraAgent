@@ -14,12 +14,12 @@ import java.util.stream.Stream;
  * 工作空间统一接口
  *
  * <p>定义 Workspace（磁盘文件存储）和 VFS（ZipFS 虚拟文件系统）的共同 API。
- * 两者都提供会话级的虚拟文件系统能力，支持文件读写、目录操作和全文检索。
+ * 两者都提供会话级的虚拟文件系统能力，支持文件读写、目录操作和 Grep 检索。
  *
  * <p>实现差异：
  * <ul>
- *     <li>{@link FileWorkspace} - 基于磁盘文件系统，源文件落盘，支持 Lucene 索引</li>
- *     <li>{@link net.itzq.mira.modules.vfs.VFS} - 基于 ZipFS，纯文本存储在 zip 文件中，支持 Lucene 索引</li>
+ *     <li>{@link FileWorkspace} - 基于磁盘文件系统，源文件落盘</li>
+ *     <li>{@link net.itzq.mira.modules.vfs.VFS} - 基于 ZipFS，纯文本存储在 zip 文件中</li>
  * </ul>
  *
  * @author tangzq
@@ -183,15 +183,6 @@ public interface Workspace extends Closeable {
     // ==================== 5. 全文检索 ====================
 
     /**
-     * 搜索：返回相关文件列表。
-     *
-     * @param query      查询关键词
-     * @param resultSize 最大返回数量
-     * @return 相关文件列表
-     */
-    List<SearchResult> search(String query, int resultSize);
-
-    /**
      * Grep 搜索（正则表达式）。
      *
      * @param regex      正则表达式
@@ -203,7 +194,7 @@ public interface Workspace extends Closeable {
     // ==================== 6. 生命周期 ====================
 
     /**
-     * 关闭并释放资源（含 Lucene 索引）。
+     * 关闭并释放资源。
      */
     @Override
     void close() throws IOException;

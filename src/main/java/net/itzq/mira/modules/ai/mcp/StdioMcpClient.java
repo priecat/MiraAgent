@@ -1,8 +1,9 @@
 package net.itzq.mira.modules.ai.mcp;
 
-import com.alibaba.fastjson2.JSONArray;
-import com.alibaba.fastjson2.JSONObject;
 import lombok.extern.slf4j.Slf4j;
+import net.itzq.mira.core.utils.json.JsonArray;
+import net.itzq.mira.core.utils.json.JsonObject;
+import net.itzq.mira.core.utils.json.JsonUtil;
 
 import java.io.*;
 import java.util.*;
@@ -49,47 +50,47 @@ public class StdioMcpClient implements McpClient {
         reader = new BufferedReader(new InputStreamReader(process.getInputStream(), "UTF-8"));
 
         // 发送initialize请求
-        JSONObject initParams = new JSONObject();
-        JSONObject capabilities = new JSONObject();
+        JsonObject initParams = new JsonObject();
+        JsonObject capabilities = new JsonObject();
         initParams.put("protocolVersion", "2024-11-05");
         initParams.put("capabilities", capabilities);
-        initParams.put("clientInfo", new JSONObject()
+        initParams.put("clientInfo", new JsonObject()
                 .fluentPut("name", "qai-agent")
                 .fluentPut("version", "0.0.4"));
 
-        JSONObject response = sendRequest("initialize", initParams);
+        JsonObject response = sendRequest("initialize", initParams);
         if (response != null) {
             log.info("MCP服务器 {} 初始化成功: {}", config.getName(),
-                    response.getJSONObject("result") != null ?
-                            response.getJSONObject("result").getJSONObject("serverInfo") : "unknown");
+                    response.getJsonObject("result") != null ?
+                            response.getJsonObject("result").getJsonObject("serverInfo") : "unknown");
         }
 
         // 发送initialized通知
-        sendNotification("notifications/initialized", new JSONObject());
+        sendNotification("notifications/initialized", new JsonObject());
 
         connected = true;
     }
 
     @Override
     public List<McpToolInfo> listTools() throws Exception {
-        JSONObject response = sendRequest("tools/list", new JSONObject());
+        JsonObject response = sendRequest("tools/list", new JsonObject());
         List<McpToolInfo> tools = new ArrayList<>();
 
-        if (response == null || response.getJSONObject("result") == null) {
+        if (response == null || response.getJsonObject("result") == null) {
             return tools;
         }
 
-        JSONArray toolsArray = response.getJSONObject("result").getJSONArray("tools");
+        JsonArray toolsArray = response.getJsonObject("result").getJsonArray("tools");
         if (toolsArray == null) {
             return tools;
         }
 
         for (int i = 0; i < toolsArray.size(); i++) {
-            JSONObject tool = toolsArray.getJSONObject(i);
+            JsonObject tool = toolsArray.getJsonObject(i);
             String name = tool.getString("name");
             String desc = tool.getString("description");
-            String schema = tool.getJSONObject("inputSchema") != null ?
-                    tool.getJSONObject("inputSchema").toJSONString() : "{}";
+            String schema = tool.getJsonObject("inputSchema") != null ?
+                    tool.getJsonObject("inputSchema").toJSONString() : "{}";
 
             McpToolInfo toolInfo = new McpToolInfo(config.getName(), name, desc, schema);
             tools.add(toolInfo);
@@ -101,38 +102,38 @@ public class StdioMcpClient implements McpClient {
 
     @Override
     public String callTool(String toolName, String arguments) throws Exception {
-        JSONObject params = new JSONObject();
+        JsonObject params = new JsonObject();
         params.put("name", toolName);
 
         // 解析参数
         if (arguments != null && !arguments.isEmpty()) {
-            params.put("arguments", JSONObject.parseObject(arguments));
+            params.put("arguments", JsonUtil.parseObject(arguments));
         } else {
-            params.put("arguments", new JSONObject());
+            params.put("arguments", new JsonObject());
         }
 
-        JSONObject response = sendRequest("tools/call", params);
+        JsonObject response = sendRequest("tools/call", params);
 
         if (response == null) {
             return "工具调用失败: 无响应";
         }
 
         if (response.containsKey("error")) {
-            JSONObject error = response.getJSONObject("error");
+            JsonObject error = response.getJsonObject("error");
             return "工具调用错误: " + (error != null ? error.getString("message") : "unknown");
         }
 
-        JSONObject result = response.getJSONObject("result");
+        JsonObject result = response.getJsonObject("result");
         if (result == null) {
             return "工具调用返回空结果";
         }
 
         // 提取content中的文本
-        JSONArray content = result.getJSONArray("content");
+        JsonArray content = result.getJsonArray("content");
         if (content != null && !content.isEmpty()) {
             StringBuilder sb = new StringBuilder();
             for (int i = 0; i < content.size(); i++) {
-                JSONObject item = content.getJSONObject(i);
+                JsonObject item = content.getJsonObject(i);
                 String type = item.getString("type");
                 if ("text".equals(type)) {
                     sb.append(item.getString("text"));
@@ -185,9 +186,9 @@ public class StdioMcpClient implements McpClient {
     /**
      * 发送JSON-RPC请求并等待响应
      */
-    private JSONObject sendRequest(String method, JSONObject params) throws Exception {
+    private JsonObject sendRequest(String method, JsonObject params) throws Exception {
         int id = requestId.incrementAndGet();
-        JSONObject request = new JSONObject();
+        JsonObject request = new JsonObject();
         request.put("jsonrpc", "2.0");
         request.put("id", id);
         request.put("method", method);
@@ -209,7 +210,7 @@ public class StdioMcpClient implements McpClient {
                 continue;
             }
             try {
-                JSONObject msg = JSONObject.parseObject(line);
+                JsonObject msg = JsonUtil.parseObject(line);
                 // 跳过通知（没有id的消息）
                 if (!msg.containsKey("id")) {
                     continue;
@@ -229,8 +230,8 @@ public class StdioMcpClient implements McpClient {
     /**
      * 发送JSON-RPC通知（不等待响应）
      */
-    private void sendNotification(String method, JSONObject params) throws Exception {
-        JSONObject notification = new JSONObject();
+    private void sendNotification(String method, JsonObject params) throws Exception {
+        JsonObject notification = new JsonObject();
         notification.put("jsonrpc", "2.0");
         notification.put("method", method);
         if (params != null) {

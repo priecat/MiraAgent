@@ -8,7 +8,7 @@ import net.itzq.mira.modules.ai.tool.ToolCallResult;
 import net.itzq.mira.modules.config.AgentConfig;
 import net.itzq.mira.modules.config.GlobalConfigManager;
 import net.itzq.mira.modules.toolfun.ToolFun;
-import org.apache.commons.lang3.StringUtils;
+import net.itzq.mira.core.utils.StringUtils;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -75,7 +75,7 @@ public class SafeBashTool {
     /**
      * 降权执行用户：**调用时**读取声明——
      * 原为 static final 在类加载期求值，若早于宿主应用配置则永久为空；
-     * P5 多实例：优先取**本运行时**声明（经工具上下文），无上下文回落默认运行时。
+     * 多实例：优先取**本运行时**声明（经工具上下文），无上下文回落默认运行时。
      */
     private static String sandboxUser(AgentContextHolder contextHolder) {
         try {

@@ -11,12 +11,13 @@ import net.itzq.mira.modules.config.GlobalConfigManager;
 import net.itzq.mira.modules.config.ValidationReport;
 import net.itzq.mira.modules.vfs.VfsService;
 import net.itzq.mira.modules.workspace.WorkspaceConfig;
+import net.itzq.mira.modules.workspace.WorkspaceService;
 
 /**
- * 内核运行时（编排运行时协议 · P5 实例化）。
+ * 内核运行时（编排运行时协议 · 实例化）。
  *
  * <p>同一 JVM 内可并存多个互相隔离的内核运行时——每个实例拥有<strong>独立</strong>的：
- * 声明配置、模型服务注册表、embedding 注册表、工具注册表、VFS 数据目录、技能清单；
+ * 声明配置、模型服务注册表、embedding 注册表、工具注册表、VFS 数据目录、磁盘工作空间目录、技能清单；
  * 外加可选挂载的 {@link PersistencePort}（不挂 = <b>即用即释放</b>：跑完即弃、无残留）。
  *
  * <pre>
@@ -48,6 +49,7 @@ public final class KernelRuntime implements AutoCloseable {
     private final EmbeddingRegistry embeddingRegistry;
     private final ToolRegistry toolRegistry;
     private final VfsService vfs;
+    private final WorkspaceService workspace;
     private final SkillRepository skills;
     private volatile PersistencePort persistencePort;
 
@@ -68,25 +70,33 @@ public final class KernelRuntime implements AutoCloseable {
         // 跟随声明的工作空间配置：宿主后置 setWorkspaceConfig 也能被服务感知
         this.vfs = b.vfsConfig != null
                 ? new VfsService(b.vfsConfig)
-                : VfsService.following(() -> {
-                    WorkspaceConfig wc = declaration.getWorkspaceConfig();
-                    if (wc != null && (wc.getDataDir() == null || wc.getDataDir().isEmpty())
-                            && dataDir != null) {
-                        // 声明未给数据目录时回落运行时 dataDir（独立实例常用形态）
-                        WorkspaceConfig fallback = new WorkspaceConfig();
-                        fallback.setDataDir(dataDir);
-                        fallback.setLuceneEnabled(wc.isLuceneEnabled());
-                        fallback.setLuceneTopN(wc.getLuceneTopN());
-                        return fallback;
-                    }
-                    return wc;
-                });
+                : VfsService.following(workspaceConfigSupplier());
+        // 磁盘工作空间服务（与 vfs 对称）：数据目录同样跟随运行时/声明
+        this.workspace = b.vfsConfig != null
+                ? new WorkspaceService(b.vfsConfig)
+                : WorkspaceService.following(workspaceConfigSupplier());
         this.skills = new SkillRepository();
         this.persistencePort = b.persistencePort == null ? PersistencePort.NOOP : b.persistencePort;
 
         if (b.declarationJson != null && !b.declarationJson.trim().isEmpty()) {
             this.declaration.importFromJson(b.declarationJson);
         }
+    }
+
+    /**
+     * 工作空间配置来源（供 vfs / workspace 两个服务共用）：
+     * 声明里的 workspaceConfig 优先；其未给数据目录时回落运行时 {@code dataDir}（独立实例常用形态）。
+     */
+    private java.util.function.Supplier<WorkspaceConfig> workspaceConfigSupplier() {
+        return () -> {
+            WorkspaceConfig wc = declaration.getWorkspaceConfig();
+            if (wc != null && (wc.getDataDir() == null || wc.getDataDir().isEmpty()) && dataDir != null) {
+                WorkspaceConfig fallback = new WorkspaceConfig();
+                fallback.setDataDir(dataDir);
+                return fallback;
+            }
+            return wc;
+        };
     }
 
     // ================================================================= 默认运行时
@@ -212,6 +222,11 @@ public final class KernelRuntime implements AutoCloseable {
 
     public VfsService vfs() {
         return vfs;
+    }
+
+    /** 磁盘工作空间服务（与 {@link #vfs()} 对称）：{@code rt.workspace().load(sessionId)} 取会话空间 */
+    public WorkspaceService workspace() {
+        return workspace;
     }
 
     public SkillRepository skills() {

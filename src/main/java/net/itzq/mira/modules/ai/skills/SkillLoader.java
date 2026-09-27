@@ -1,8 +1,8 @@
 package net.itzq.mira.modules.ai.skills;
 
-import com.alibaba.fastjson2.JSONObject;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
+import net.itzq.mira.core.utils.StringUtils;
+import net.itzq.mira.core.utils.json.JsonObject;
 
 import java.io.File;
 import java.io.IOException;
@@ -65,11 +65,11 @@ public class SkillLoader  {
      */
     public static SkillEntity loadSkill(SkillBundle bundle) {
         // 1. 解析 _skillhub_meta.json
-        JSONObject meta = null;
+        JsonObject meta = null;
         String metaContent = bundle.readMeta();
         if (metaContent != null) {
             try {
-                meta = JSONObject.parseObject(metaContent);
+                meta = JsonObject.parseObject(metaContent);
             } catch (Exception e) {
                 log.warn("解析技能元数据失败", e);
             }

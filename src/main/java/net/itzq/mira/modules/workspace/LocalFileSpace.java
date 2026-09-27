@@ -31,7 +31,7 @@ import java.util.stream.Stream;
  * <p>与 {@link FileWorkspace} 的区别：FileWorkspace 的存储根固定在
  * 全局 dataDir 下按 sessionId 划分；LocalFileSpace 直接以用户指定的
  * 真实目录（如 D:\work\myproject）为根，所有接口均通过 NIO 直操真实文件，
- * 不落 Lucene 索引（search 返回空，grep 基于文件内容直接匹配）。
+ * Grep 基于文件内容直接匹配。
  *
  * <p>路径语义与 FileWorkspace 一致：接口内 path 使用以 / 分隔的虚拟路径
  * （如 "/data/hello.txt"），内部经 {@link FileStorage#toReal(String)}
@@ -356,15 +356,6 @@ public class LocalFileSpace implements Workspace {
     }
 
     // ==================== 5. 全文检索 ====================
-
-    /**
-     * 搜索：LocalFileSpace 不建 Lucene 索引，恒返回空结果。
-     */
-    @Override
-    public List<SearchResult> search(String query, int resultSize) {
-        log.warn("LocalFileSpace 未启用 Lucene 索引，search 返回空结果: query={}", query);
-        return new ArrayList<>();
-    }
 
     /**
      * Grep 搜索（正则表达式，直接遍历真实文件内容匹配）。

@@ -13,7 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 模型服务注册表（编排运行时协议 · 实例组件）。
  *
- * <p>P5 实例化：原 {@link ApiProviderManage} 的四个服务表与 defaultModel 平移到本类，
+ * <p>实例化：原 {@link ApiProviderManage} 的四个服务表与 defaultModel 平移到本类，
  * 静态单例语义改为**实例私有**——每个内核运行时（KernelRuntime）拥有独立的模型注册表，
  * 同进程多实例的模型/凭据互不可见；{@link ApiProviderManage} 降级为委托默认运行时的静态 facade。
  */
@@ -34,7 +34,7 @@ public class ModelRegistry {
     private volatile String defaultModel = "";
 
     /**
-     * 本实例的工具注册表（P5）：构造对话服务时注入，使"请求里的 functions → Tool 实体"
+     * 本实例的工具注册表：构造对话服务时注入，使"请求里的 functions → Tool 实体"
      * 从**同一运行时**的注册表解析（多实例隔离）。未绑定则回落默认运行时的注册表。
      */
     private volatile net.itzq.mira.modules.ai.tool.ToolRegistry toolRegistry;
@@ -59,7 +59,7 @@ public class ModelRegistry {
     // ==================== 图像 / 审查 / 语音服务 ====================
 
     /**
-     * 本实例生效的 SSE 超时配置（P5 多实例）：经工具注册表反向引用取**所属运行时**的声明，
+     * 本实例生效的 SSE 超时配置（多实例）：经工具注册表反向引用取**所属运行时**的声明，
      * 未绑定 / 未配置回落默认运行时声明。service 创建时以此为其请求超时快照。
      */
     private net.itzq.mira.modules.config.SseClientConfig sseTimeouts() {

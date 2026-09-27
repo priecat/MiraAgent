@@ -10,7 +10,7 @@ import net.itzq.mira.modules.ai.skills.SkillManager;
 import net.itzq.mira.modules.ai.skills.SkillRepository;
 import net.itzq.mira.modules.config.GlobalConfigManager;
 import net.itzq.mira.modules.toolfun.ToolFun;
-import org.apache.commons.lang3.StringUtils;
+import net.itzq.mira.core.utils.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -19,7 +19,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * AutoAgent —— 通用 Agent（2026-09-25 重写：吸收应用层 MiraAgent 的纯净装配设计）。
+ * AutoAgent —— 通用 Agent。
  *
  * <h3>设计原则：构造纯净，装配显式</h3>
  * 原实现（构造期隐式注入系统提示词 + 默认 code 工具 + 技能/MCP 工具）会与应用层
@@ -43,7 +43,7 @@ public class AutoAgent extends BasicAgent {
     /**
      * 技能目录路径（懒读配置，避免类初始化期依赖配置装载顺序）。
      *
-     * @deprecated P5 多实例：静态助手只能取到**默认运行时**的声明，多实例下取错技能目录。
+     * @deprecated 多实例：静态助手只能取到**默认运行时**的声明，多实例下取错技能目录。
      *             请改走实例：<code>contextHolder.getRuntime().declaration().getAgentConfig().getSkillsDir()</code>
      *             （技能仓储的懒加载已按此来源，见 {@link #resolveActiveSkills}）。
      */
@@ -264,7 +264,7 @@ public class AutoAgent extends BasicAgent {
     /**
      * 旧：用内核自带模板 {@code assets/prompt/auto-agent.md} 渲染系统提示词。
      *
-     * @deprecated 应用层已自持提示词模板（{@code core:prompt/agent_system.md}）；
+     * @deprecated 应用层已自持提示词模板（{@code core:assets/prompt/agent_system.md}）；
      *             动态段请用 {@link #buildSkillMcpPromptParams}，模板渲染交 PromptLoader。
      */
     @Deprecated

@@ -5,7 +5,7 @@ import net.itzq.mira.modules.ai.client.config.ModelApiConfig;
 import net.itzq.mira.modules.ai.client.sse.HttpResp;
 import net.itzq.mira.modules.ai.client.sse.HttpSSEClient;
 import net.itzq.mira.modules.config.SseClientConfig;
-import org.apache.commons.lang3.StringUtils;
+import net.itzq.mira.core.utils.StringUtils;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -27,7 +27,7 @@ public class OpenAICompatibleModerationService {
 
     private final ModelApiConfig config;
 
-    /** SSE 超时快照（P5 多实例）：所属运行时的声明，请求时传给 HttpSSEClient */
+    /** SSE 超时快照（多实例）：所属运行时的声明，请求时传给 HttpSSEClient */
     private final SseClientConfig sseTimeouts;
 
     public OpenAICompatibleModerationService(ModelApiConfig config) {

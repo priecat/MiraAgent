@@ -1,7 +1,9 @@
 package net.itzq.mira.modules.ai.client.config;
 
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 import net.itzq.mira.modules.ai.client.handle.HttpStreamEventInterface;
 
 import java.util.Map;
@@ -13,60 +15,62 @@ import java.util.Map;
  */
 @Data
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class ModelApiConfig {
 
-    private final String alias;
+    private String alias;
 
-    private final String providerName;
+    private String providerName;
 
-    private final String apiModelName;
+    private String apiModelName;
 
-    private final String apiHost;
+    private String apiHost;
 
-    private final String apiKey;
+    private String apiKey;
 
-    private final String apiEndpoint;
+    private String apiEndpoint;
 
-    private final Map<String, String> apiHeaders;
+    private Map<String, String> apiHeaders;
 
-    private final String sseEventHandler; // 事件处理器全类名，须先在StreamEventHandlerManage注册
+    private String sseEventHandler; // 事件处理器全类名，须先在StreamEventHandlerManage注册
 
     /** 是否支持图片输入（视觉）：1 支持 / 0 不支持 */
     @Builder.Default
-    private final Integer supportImage = 1;
+    private Integer supportImage = 1;
 
-    // ==================== 声明域收归（P1）：模型高级参数 ====================
+    // ==================== 模型高级参数 ====================
     // 原落宿主 ModelConfig 的 V3 高级列，收归内核声明；null/空 = 不参与请求（与节点参数同语义）。
     // 装配逻辑见 AgentRequestParamsFactory（内核按模型构造 ApiRequestParams）。
 
     /** 展示名（宿主 UI 用，可空；为空回退 alias） */
-    private final String displayName;
+    private String displayName;
 
     /** 模型类型（chat / embedding / ...；可空） */
-    private final String modelType;
+    private String modelType;
 
     /** 上下文窗口（输入/输出，token；可空） */
-    private final Long contextWindowInput;
+    private Long contextWindowInput;
 
-    private final Long contextWindowOutput;
+    private Long contextWindowOutput;
 
     /** 工具调用最大轮数（可空） */
-    private final Integer toolCallRounds;
+    private Integer toolCallRounds;
 
     /** 思考模式：开/关参数（JSON 对象字符串，逐键展开进请求体；可空） */
-    private final String thinkingEnableParam;
+    private String thinkingEnableParam;
 
-    private final String thinkingDisableParam;
+    private String thinkingDisableParam;
 
     /** 采样参数（null = 不传） */
-    private final Double samplingTemperature;
+    private Double samplingTemperature;
 
-    private final Double samplingTopP;
+    private Double samplingTopP;
 
-    private final Integer samplingTopK;
+    private Integer samplingTopK;
 
     /** 自定义参数（JSON 对象字符串，逐键透传请求体；可空） */
-    private final String customParams;
+    private String customParams;
 
     /**
      * 模型是否支持图片输入（视觉多模态）。

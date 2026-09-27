@@ -1,8 +1,8 @@
 package net.itzq.mira.modules.ai.tool;
 
-import com.alibaba.fastjson2.JSONObject;
-import io.github.classgraph.*;
 import lombok.extern.slf4j.Slf4j;
+import net.itzq.mira.core.utils.json.JsonObject;
+import net.itzq.mira.core.utils.json.JsonUtil;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.client.openai.tool.Tool;
 import net.itzq.mira.modules.ai.tool.annotation.ToolParam;
@@ -20,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 工具注册表（编排运行时协议 · 实例组件）。
  *
- * <p>P5 实例化：原 {@link FCUtil} 的全部注册/查询/调用逻辑平移到本类，
+ * <p>实例化：原 {@link FCUtil} 的全部注册/查询/调用逻辑平移到本类，
  * 静态可变 Map 改为**实例私有**——每个内核运行时（KernelRuntime）拥有独立工具表，
  * 同进程多实例互不可见；{@link FCUtil} 降级为委托默认运行时的静态 facade（兼容期）。
  *
@@ -42,7 +42,7 @@ public class ToolRegistry {
     private final Map<String, Method> toolMethodMap = new ConcurrentHashMap<>();
 
     /**
-     * 工具来源标注（声明域收归 · P1）：toolName → source。
+     * 工具来源标注：toolName → source。
      * source 形态：{@code core} / {@code app:<hostId>} / {@code plugin:<id>}。
      * 导出声明时按 source 分组生成 toolProviders，导入端据此判断缺哪些注册。
      */
@@ -52,7 +52,7 @@ public class ToolRegistry {
     private final Map<Class<?>, Object> toolInstanceCache = new ConcurrentHashMap<>();
 
     /**
-     * 所属内核运行时（P5 多实例）：由 {@code KernelRuntime} 构造时反向绑定。
+     * 所属内核运行时（多实例）：由 {@code KernelRuntime} 构造时反向绑定。
      * 注册表本就是 per-runtime 的实例组件——反向持有 owner 后，
      * "只有注册表、没有 holder"的调用方（如各 OpenAI 兼容 service）
      * 也能取到**本实例**的声明配置（SSE 超时等），而非默认运行时的。
@@ -84,7 +84,7 @@ public class ToolRegistry {
         registerTool(aiTool, SOURCE_UNKNOWN);
     }
 
-    /** 注册自定义工具并标注来源（声明域收归 · P1） */
+    /** 注册自定义工具并标注来源 */
     public synchronized void registerTool(AiToolDefine aiTool, String source) {
         String functionName = aiTool.name();
 
@@ -106,7 +106,7 @@ public class ToolRegistry {
         scanTools(SOURCE_CORE, toolClasses);
     }
 
-    /** 手动扫描工具类并标注来源（声明域收归 · P1） */
+    /** 手动扫描工具类并标注来源 */
     public void scanTools(String source, Class<?>... toolClasses) {
         if (toolClasses == null || toolClasses.length == 0) {
             log.warn("scanTools 未传入任何工具类，跳过扫描");
@@ -140,47 +140,6 @@ public class ToolRegistry {
 
         long cost = System.currentTimeMillis() - startTime;
         log.info("===== 手动扫描完成，共注册 {} 个 Tool，耗时: {}ms =====", registered, cost);
-    }
-
-    /** 使用 ClassGraph 扫描整个类路径的 Tool 方法（可选能力，默认不用） */
-    public void scanAllTools() {
-        log.info("===== 开始使用 ClassGraph 扫描 Tool 方法 =====");
-        long startTime = System.currentTimeMillis();
-
-        try (ScanResult scanResult = new ClassGraph().enableClassInfo().enableMethodInfo()
-                .enableAnnotationInfo().scan()) {
-
-            ClassInfoList classInfoList = scanResult.getClassesWithMethodAnnotation(
-                    net.itzq.mira.modules.ai.tool.annotation.Tool.class.getName());
-
-            for (ClassInfo classInfo : classInfoList) {
-                for (MethodInfo methodInfo : classInfo.getDeclaredMethodInfo()) {
-                    AnnotationInfo toolAnnotationInfo = methodInfo.getAnnotationInfo(
-                            net.itzq.mira.modules.ai.tool.annotation.Tool.class.getName());
-                    if (toolAnnotationInfo != null) {
-                        try {
-                            Method method = methodInfo.loadClassAndGetMethod();
-                            net.itzq.mira.modules.ai.tool.annotation.Tool toolAnnotation =
-                                    method.getAnnotation(net.itzq.mira.modules.ai.tool.annotation.Tool.class);
-                            if (toolAnnotation != null) {
-                                String functionName = toolAnnotation.name();
-                                toolMethodMap.put(functionName, method);
-                                toolEntityMap.put(functionName, buildToolEntityFromMethod(method));
-                                log.info("注册 Tool: {}", functionName);
-                            }
-                        } catch (Exception e) {
-                            log.error("加载 Tool 方法失败: {}.{}", classInfo.getName(), methodInfo.getName(), e);
-                        }
-                    }
-                }
-            }
-
-            long cost = System.currentTimeMillis() - startTime;
-            log.info("===== ClassGraph 扫描完成，共注册 {} 个 Tool，耗时: {}ms =====",
-                    toolMethodMap.size(), cost);
-        } catch (Exception e) {
-            log.error("ClassGraph 扫描类路径失败", e);
-        }
     }
 
     /** 卸载单个工具 */
@@ -288,9 +247,9 @@ public class ToolRegistry {
             return "工具未注册: " + functionName;
         }
 
-        JSONObject args = null;
+        JsonObject args = null;
         try {
-            args = JSONObject.parseObject(argument);
+            args = JsonObject.parseObject(argument);
         } catch (Exception directParseEx) {
             log.debug("原始参数解析失败，尝试 JsonRepair 修复: {}", directParseEx.getMessage());
             try {
@@ -298,7 +257,7 @@ public class ToolRegistry {
                 if (fixed != null) {
                     argument = fixed;
                 }
-                args = JSONObject.parseObject(argument);
+                args = JsonObject.parseObject(argument);
             } catch (Exception repairEx) {
                 log.error("参数修复后仍无法解析: {}", argument, repairEx);
                 throw new RuntimeException("参数解析失败: " + repairEx.getMessage());
@@ -358,14 +317,14 @@ public class ToolRegistry {
                         }
                 );
                 Object invoke = method.invoke(toolInstance, invokeParams.toArray(new Object[] {}));
-                response = com.alibaba.fastjson2.JSON.toJSONString(invoke);
+                response = JsonUtil.toJson(invoke);
             } catch (Exception e) {
                 log.error("ERROR", e);
                 // 统一协议 + 统一 JSON 序列化（前端可安全 parse；[mira:err] 前缀标识失败）
                 Throwable cause = e.getCause() == null ? e : e.getCause();
                 String detail = cause.getMessage() == null
                         ? cause.getClass().getSimpleName() : cause.getMessage();
-                response = com.alibaba.fastjson2.JSON.toJSONString(
+                response = JsonUtil.toJson(
                         ToolCallResult.error(ToolCallResult.KERNEL_ERROR_PREFIX + detail));
             }
 

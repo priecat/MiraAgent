@@ -1,9 +1,10 @@
 package net.itzq.mira.modules.ai.mcp;
 
-import com.alibaba.fastjson2.JSONObject;
 import lombok.extern.slf4j.Slf4j;
+import net.itzq.mira.core.utils.json.JsonObject;
+import net.itzq.mira.core.utils.json.JsonUtil;
 import net.itzq.mira.modules.ai.tool.ToolCallResult;
-import org.apache.commons.lang3.StringUtils;
+import net.itzq.mira.core.utils.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -29,14 +30,14 @@ public class McpManager {
         }
 
         try {
-            JSONObject config = JSONObject.parseObject(configJson);
-            JSONObject servers = config.getJSONObject("mcpServers");
+            JsonObject config = JsonUtil.parseObject(configJson);
+            JsonObject servers = config.getJsonObject("mcpServers");
             if (servers == null || servers.isEmpty()) {
                 return new McpPrepared(configJson, tools);
             }
 
             for (String serverName : servers.keySet()) {
-                JSONObject serverConfig = servers.getJSONObject(serverName);
+                JsonObject serverConfig = servers.getJsonObject(serverName);
                 try {
                     List<McpToolInfo> serverTools = discoverServerTools(serverName, serverConfig);
                     tools.addAll(serverTools);
@@ -54,7 +55,7 @@ public class McpManager {
     /**
      * 连接单个服务器 -> listTools -> 断开
      */
-    private static List<McpToolInfo> discoverServerTools(String serverName, JSONObject serverConfig) throws Exception {
+    private static List<McpToolInfo> discoverServerTools(String serverName, JsonObject serverConfig) throws Exception {
         McpServerConfig config = McpServerConfig.fromJson(serverName, serverConfig);
         McpClient client = createClient(config);
         try {
@@ -89,13 +90,13 @@ public class McpManager {
         String toolName = parts[2];
 
         try {
-            JSONObject config = JSONObject.parseObject(configJson);
-            JSONObject servers = config.getJSONObject("mcpServers");
+            JsonObject config = JsonUtil.parseObject(configJson);
+            JsonObject servers = config.getJsonObject("mcpServers");
             if (servers == null || !servers.containsKey(serverName)) {
                 return ToolCallResult.error("MCP服务器未配置: " + serverName);
             }
 
-            McpServerConfig serverConfig = McpServerConfig.fromJson(serverName, servers.getJSONObject(serverName));
+            McpServerConfig serverConfig = McpServerConfig.fromJson(serverName, servers.getJsonObject(serverName));
             McpClient client = createClient(serverConfig);
             try {
                 client.connect();

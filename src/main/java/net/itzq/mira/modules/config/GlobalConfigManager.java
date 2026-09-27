@@ -1,11 +1,11 @@
 package net.itzq.mira.modules.config;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONArray;
-import com.alibaba.fastjson2.JSONObject;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.core.utils.JsonMapper;
+import net.itzq.mira.core.utils.json.JsonArray;
+import net.itzq.mira.core.utils.json.JsonObject;
+import net.itzq.mira.core.utils.json.JsonUtil;
 import net.itzq.mira.modules.ai.client.config.ApiProviderManage;
 import net.itzq.mira.modules.ai.client.config.ModelApiConfig;
 import net.itzq.mira.modules.ai.client.embedding.EmbeddingProviderManage;
@@ -61,7 +61,7 @@ public class GlobalConfigManager {
     @Getter
     private volatile List<EmbeddingApiConfig> embeddings = new ArrayList<>();
 
-    // ==================== 声明域扩展（P1：编排运行时协议） ====================
+    // ==================== 声明域 编排运行时协议  ====================
 
     /** 声明 schema 版本（协议先行：结构变更必须递增） */
     public static final String SCHEMA_VERSION = "1.0.0";
@@ -112,7 +112,7 @@ public class GlobalConfigManager {
     }
 
     /**
-     * 实例构造（P5 实例化）。
+     * 实例构造（实例化）。
      *
      * <p>不再有"单例"语义：每个内核运行时（KernelRuntime）持有一个独立实例，
      * 同进程多实例的声明域互不可见。<b>兼容期</b>：静态 {@link #config()} 委托默认运行时
@@ -122,7 +122,7 @@ public class GlobalConfigManager {
     }
 
     /**
-     * 所属内核运行时（P5）：由 {@link net.itzq.mira.modules.runtime.KernelRuntime} 构造后注入。
+     * 所属内核运行时：由 {@link net.itzq.mira.modules.runtime.KernelRuntime} 构造后注入。
      * 未注入（独立使用/测试）时，配置应用回落静态 facade（等价于默认运行时）。
      */
     private volatile net.itzq.mira.modules.runtime.KernelRuntime boundRuntime;
@@ -140,7 +140,7 @@ public class GlobalConfigManager {
     // ==================== 兼容 facade（委托默认运行时） ====================
 
     /**
-     * @deprecated P5：改用 {@code holder.getRuntime().declaration()}；本静态入口委托
+     * @deprecated 改用 {@code holder.getRuntime().declaration()}；本静态入口委托
      *            默认运行时的声明实例，兼容期内保留。
      */
     @Deprecated
@@ -151,31 +151,19 @@ public class GlobalConfigManager {
     // ==================== set ====================
 
     public void setAgentConfig(AgentConfig agentConfig) {
-        if (agentConfig == null) {
-            this.agentConfig = new AgentConfig();
-        }
-        this.agentConfig = agentConfig;
+        this.agentConfig = agentConfig == null ? new AgentConfig() : agentConfig;
     }
 
     public void setWorkspaceConfig(WorkspaceConfig workspaceConfig) {
-        if (workspaceConfig == null){
-            workspaceConfig = new WorkspaceConfig();
-        }
-        this.workspaceConfig = workspaceConfig;
+        this.workspaceConfig = workspaceConfig == null ? new WorkspaceConfig() : workspaceConfig;
     }
 
     public void setSseClientSimpleConfig(SseClientConfig sseClientSimpleConfig) {
-        if (sseClientSimpleConfig == null) {
-            this.sseClientSimpleConfig = new SseClientConfig();
-        }
-        this.sseClientSimpleConfig = sseClientSimpleConfig;
+        this.sseClientSimpleConfig = sseClientSimpleConfig == null ? new SseClientConfig() : sseClientSimpleConfig;
     }
 
     public void setModels(List<ModelApiConfig> models) {
-        if (models == null) {
-            this.models = new ArrayList<>();
-        }
-        this.models = models;
+        this.models = models == null ? new ArrayList<>() : models;
     }
 
     public void setEmbeddings(List<EmbeddingApiConfig> embeddings) {
@@ -252,7 +240,7 @@ public class GlobalConfigManager {
     }
 
     /**
-     * 工具声明：显式设置过则原样导出；否则从注册表快照生成（声明域收归 · P1）。
+     * 工具声明：显式设置过则原样导出；否则从注册表快照生成。
      * 快照按 source 分组（core / app:&lt;hostId&gt; / plugin:&lt;id&gt;），供导入端做存在性校验。
      */
     private List<ToolProviderDecl> resolveToolProviders() {
@@ -281,7 +269,7 @@ public class GlobalConfigManager {
     private List<Map<String, Object>> maskedModels(CredentialPolicy policy) {
         List<Map<String, Object>> out = new ArrayList<>();
         for (ModelApiConfig m : models) {
-            Map<String, Object> item = JSON.parseObject(JSON.toJSONString(m));
+            Map<String, Object> item = JsonUtil.parseObject(JsonUtil.toJson(m));
             if (item != null) {
                 Object key = item.get("apiKey");
                 if (key != null) {
@@ -302,7 +290,7 @@ public class GlobalConfigManager {
         if (json == null || json.trim().isEmpty()) {
             throw new IllegalArgumentException("配置 JSON 不能为空");
         }
-        JSONObject root = JSON.parseObject(json);
+        JsonObject root = JsonUtil.parseObject(json);
         if (root == null) {
             throw new IllegalArgumentException("配置 JSON 解析失败");
         }
@@ -318,25 +306,25 @@ public class GlobalConfigManager {
         }
 
         // agentConfig
-        JSONObject ac = root.getJSONObject("agentConfig");
+        JsonObject ac = root.getJsonObject("agentConfig");
         if (ac != null) {
             setAgentConfig(ac.to(AgentConfig.class));
         }
 
         // workspaceConfig
-        JSONObject wkc = root.getJSONObject("workspaceConfig");
+        JsonObject wkc = root.getJsonObject("workspaceConfig");
         if (wkc != null) {
             setWorkspaceConfig(wkc.to(WorkspaceConfig.class));
         }
 
         // sseClientSimpleConfig
-        JSONObject sc = root.getJSONObject("sseClientSimpleConfig");
+        JsonObject sc = root.getJsonObject("sseClientSimpleConfig");
         if (sc != null) {
             setSseClientSimpleConfig(sc.to(SseClientConfig.class));
         }
 
         // models（凭据引用未解析 → warning，不阻断）
-        JSONArray modelsArr = root.getJSONArray("models");
+        JsonArray modelsArr = root.getJsonArray("models");
         if (modelsArr != null) {
             List<ModelApiConfig> list = modelsArr.toJavaList(ModelApiConfig.class);
             setModels(list);
@@ -348,19 +336,19 @@ public class GlobalConfigManager {
         }
 
         // embeddings
-        JSONArray embArr = root.getJSONArray("embeddings");
+        JsonArray embArr = root.getJsonArray("embeddings");
         if (embArr != null) {
             setEmbeddings(embArr.toJavaList(EmbeddingApiConfig.class));
         }
 
         // prompts（提示词域）
-        JSONObject promptsObj = root.getJSONObject("prompts");
+        JsonObject promptsObj = root.getJsonObject("prompts");
         if (promptsObj != null) {
             setPrompts(promptsObj.to(PromptConfig.class));
         }
 
         // toolProviders（工具域）+ 注册表存在性校验（缺注册 → missing 清单）
-        JSONArray tpArr = root.getJSONArray("toolProviders");
+        JsonArray tpArr = root.getJsonArray("toolProviders");
         if (tpArr != null) {
             List<ToolProviderDecl> decls = tpArr.toJavaList(ToolProviderDecl.class);
             setToolProviders(decls);
@@ -381,30 +369,30 @@ public class GlobalConfigManager {
         }
 
         // defaults（默认值域）
-        JSONObject defaultsObj = root.getJSONObject("defaults");
+        JsonObject defaultsObj = root.getJsonObject("defaults");
         if (defaultsObj != null) {
             setDefaults(new LinkedHashMap<>(defaultsObj));
         }
 
         // plugins（插件域）
-        JSONObject pluginsObj = root.getJSONObject("plugins");
+        JsonObject pluginsObj = root.getJsonObject("plugins");
         if (pluginsObj != null) {
             Map<String, PluginSettings> map = new LinkedHashMap<>();
             for (String pid : pluginsObj.keySet()) {
-                JSONObject one = pluginsObj.getJSONObject(pid);
+                JsonObject one = pluginsObj.getJsonObject(pid);
                 map.put(pid, one == null ? new PluginSettings() : one.to(PluginSettings.class));
             }
             setPlugins(map);
         }
 
         // appSettingsSchema（应用级设置声明：宿主自有工具/功能的 schema）
-        JSONArray assArr = root.getJSONArray("appSettingsSchema");
+        JsonArray assArr = root.getJsonArray("appSettingsSchema");
         if (assArr != null) {
             setAppSettingsSchema(assArr.toJavaList(AppSettingDef.class));
         }
 
         // appSettings（应用级设置值；secret 为 ${ENV} 未解析 → warning，不阻断）
-        JSONObject asObj = root.getJSONObject("appSettings");
+        JsonObject asObj = root.getJsonObject("appSettings");
         if (asObj != null) {
             Map<String, Object> vals = new LinkedHashMap<>(asObj);
             for (AppSettingDef d : appSettingsSchema) {
@@ -420,7 +408,7 @@ public class GlobalConfigManager {
         }
 
         // 导入后应用到各子系统。
-        // P5 多实例：**必须应用到本实例的注册表**——静态 applyAll() 走的是默认运行时，
+        // **必须应用到本实例的注册表**——静态 applyAll() 走的是默认运行时，
         // 非默认实例（独立运行时/编排包导入）用它会导致"声明更新了、模型没注册进自己"。
         if (boundRuntime != null) {
             applyAllInstance();
@@ -553,7 +541,7 @@ public class GlobalConfigManager {
 
     private void applyModels() {
         if (boundRuntime != null) {
-            // P5：应用进本运行时的模型注册表（多实例互不可见）
+            // 应用进本运行时的模型注册表（多实例互不可见）
             boundRuntime.modelRegistry().reset(models);
             if (agentConfig.getDefaultModel() != null && !agentConfig.getDefaultModel().isEmpty()) {
                 boundRuntime.modelRegistry().setDefaultModel(agentConfig.getDefaultModel());
@@ -581,7 +569,7 @@ public class GlobalConfigManager {
     }
 
     /**
-     * 实例级"应用全部配置"（P5）：只作用于本运行时持有的注册表，
+     * 实例级"应用全部配置"：只作用于本运行时持有的注册表，
      * 与静态 {@link #applyAll()}（作用于默认运行时）区分。
      */
     public void applyAllInstance() {

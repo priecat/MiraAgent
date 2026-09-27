@@ -7,7 +7,7 @@ import net.itzq.mira.modules.ai.tool.annotation.ToolParam;
 import net.itzq.mira.modules.ai.tool.ToolCallResult;
 import net.itzq.mira.modules.toolfun.ToolFun;
 import net.itzq.mira.modules.vfs.VFS;
-import org.apache.commons.lang3.StringUtils;
+import net.itzq.mira.core.utils.StringUtils;
 
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;

@@ -1,8 +1,8 @@
 package net.itzq.mira.modules.ai.persistence;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONArray;
-import com.alibaba.fastjson2.JSONObject;
+import net.itzq.mira.core.utils.json.JsonArray;
+import net.itzq.mira.core.utils.json.JsonObject;
+import net.itzq.mira.core.utils.json.JsonUtil;
 
 import java.util.*;
 
@@ -18,18 +18,18 @@ public class DefaultStreamChunkAggregator {
      * @param jsonArrayStr 原始流式消息JSON数组字符串
      * @return 聚合后的JSON数组
      */
-    public static JSONArray aggregate(String jsonArrayStr) {
-        JSONArray originalArray = JSON.parseArray(jsonArrayStr);
+    public static JsonArray aggregate(String jsonArrayStr) {
+        JsonArray originalArray = JsonUtil.parseArray(jsonArrayStr);
         // key: msgId, value: 聚合中的消息对象
-        Map<String, JSONObject> aggregatedMap = new HashMap<>();
+        Map<String, JsonObject> aggregatedMap = new HashMap<>();
         // key: msgId, value: 首次出现索引（用于排序）
         Map<String, Integer> firstIndexMap = new HashMap<>();
-        // 按原始顺序记录所有消息（String表示msgId，JSONObject表示非聚合消息）
+        // 按原始顺序记录所有消息（String表示msgId，JsonObject表示非聚合消息）
         List<Object> orderList = new ArrayList<>();
         int index = 0; // 记录需要聚合的消息的首次出现顺序
 
         for (int i = 0; i < originalArray.size(); i++) {
-            JSONObject item = originalArray.getJSONObject(i);
+            JsonObject item = originalArray.getJSONObject(i);
             String type = item.getString("type");
             String msgId = item.getString("msgId");
 
@@ -37,7 +37,7 @@ public class DefaultStreamChunkAggregator {
                 // 需要聚合的消息
                 if (!aggregatedMap.containsKey(msgId)) {
                     // 首次出现：复制所有字段，并初始化answer
-                    JSONObject aggregated = new JSONObject();
+                    JsonObject aggregated = new JsonObject();
                     for (Map.Entry<String, Object> entry : item.entrySet()) {
                         aggregated.put(entry.getKey(), entry.getValue());
                     }
@@ -51,7 +51,7 @@ public class DefaultStreamChunkAggregator {
                     index++;
                 } else {
                     // 后续出现：拼接answer字段
-                    JSONObject aggregated = aggregatedMap.get(msgId);
+                    JsonObject aggregated = aggregatedMap.get(msgId);
                     String currentAnswer = item.getString("answer");
                     if (currentAnswer != null) {
                         String existingAnswer = aggregated.getString("answer");
@@ -65,7 +65,7 @@ public class DefaultStreamChunkAggregator {
         }
 
         // 按顺序构建结果数组
-        JSONArray resultArray = new JSONArray();
+        JsonArray resultArray = new JsonArray();
         for (Object obj : orderList) {
             if (obj instanceof String) {
                 String msgId = (String) obj;

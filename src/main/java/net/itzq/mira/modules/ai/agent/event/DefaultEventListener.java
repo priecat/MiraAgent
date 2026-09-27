@@ -1,6 +1,6 @@
 package net.itzq.mira.modules.ai.agent.event;
 
-import com.alibaba.fastjson2.JSONObject;
+import net.itzq.mira.core.utils.json.JsonObject;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.agent.event.type.*;
 import net.itzq.mira.modules.ai.client.handle.StreamEventHandler;
@@ -82,7 +82,7 @@ public abstract class DefaultEventListener implements EventListener, IEmitter {
         ans.setRoundId(replyId.getRoundId());
         ans.setMsgId(replyId.getMsgId());
 
-        JSONObject info = new JSONObject();
+        JsonObject info = new JsonObject();
         info.put("question", question);
         // 图片总是随 UserInput 事件持久化并下发前端渲染（发给 LLM 与否由归一化按模型能力决定）
         if (event.getImages() != null && !event.getImages().isEmpty()) {
@@ -116,7 +116,7 @@ public abstract class DefaultEventListener implements EventListener, IEmitter {
         ans.setRoundId(replyId.getRoundId());
         ans.setMsgId(replyId.getMsgId());
 
-        JSONObject info = new JSONObject();
+        JsonObject info = new JsonObject();
         info.put("name", name);
         info.put("deep", deep);
         ans.setInfo(info);
@@ -147,7 +147,7 @@ public abstract class DefaultEventListener implements EventListener, IEmitter {
         ans.setRoundId(replyId.getRoundId());
         ans.setMsgId(replyId.getMsgId());
 
-        JSONObject info = new JSONObject();
+        JsonObject info = new JsonObject();
         info.put("name", name);
         info.put("deep", deep);
         ans.setInfo(info);
@@ -176,7 +176,7 @@ public abstract class DefaultEventListener implements EventListener, IEmitter {
         ans.setRoundId(replyId.getRoundId());
         ans.setMsgId(replyId.getMsgId());
 
-        JSONObject info = new JSONObject();
+        JsonObject info = new JsonObject();
         ans.setInfo(info);
         ans.setType(AnsType.ChatEnd.toString());
 
@@ -205,7 +205,7 @@ public abstract class DefaultEventListener implements EventListener, IEmitter {
         ans.setRoundId(replyId.getRoundId());
         ans.setMsgId(replyId.getMsgId());
 
-        JSONObject info = new JSONObject();
+        JsonObject info = new JsonObject();
         if (toolCall != null) {
             try {
                 String functionName = toolCall.getFunction().getName();
@@ -251,7 +251,7 @@ public abstract class DefaultEventListener implements EventListener, IEmitter {
         ans.setRoundId(replyId.getRoundId());
         ans.setMsgId(replyId.getMsgId());
 
-        JSONObject info = new JSONObject();
+        JsonObject info = new JsonObject();
         if (toolCall != null) {
             try {
                 String functionName = toolCall.getFunction().getName();

@@ -9,12 +9,12 @@ import net.itzq.mira.modules.runtime.KernelRuntime;
 import java.util.List;
 
 /**
- * ApiProviderManage —— 模型服务注册表的**兼容 facade**（P5 实例化后保留）。
+ * ApiProviderManage —— 模型服务注册表的**兼容 facade**。
  *
- * <p>P5 起注册表是实例组件 {@link ModelRegistry}（每个 {@code KernelRuntime} 一份，
+ * <p>起注册表是实例组件 {@link ModelRegistry}（每个 {@code KernelRuntime} 一份，
  * 模型/凭据互不可见）。本类静态方法全部委托默认运行时的注册表，存量调用点零改动。
  *
- * @deprecated P5：改用 {@code holder.getRuntime().modelRegistry()}。
+ * @deprecated 改用 {@code holder.getRuntime().modelRegistry()}。
  */
 @Deprecated
 public class ApiProviderManage {

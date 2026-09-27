@@ -10,7 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Embedding 注册表（编排运行时协议 · 实例组件）。
  *
- * <p>P5 实例化：原 {@link EmbeddingProviderManage} 的提供者表与 defaultProvider 平移到本类，
+ * <p>实例化：原 {@link EmbeddingProviderManage} 的提供者表与 defaultProvider 平移到本类，
  * 静态单例语义改为实例私有——每个内核运行时（KernelRuntime）拥有独立 embedding 注册表；
  * {@link EmbeddingProviderManage} 降级为委托默认运行时的静态 facade。
  */

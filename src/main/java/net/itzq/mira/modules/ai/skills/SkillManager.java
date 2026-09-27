@@ -6,12 +6,12 @@ import java.util.Collection;
 import java.util.List;
 
 /**
- * SkillManager —— 技能仓储的**兼容 facade**（P5 实例化后保留）。
+ * SkillManager —— 技能仓储的**兼容 facade**。
  *
- * <p>P5 起仓储是实例组件 {@link SkillRepository}（每个 {@code KernelRuntime} 一份，
+ * <p>仓储是实例组件 {@link SkillRepository}（每个 {@code KernelRuntime} 一份，
  * 可指向不同 skillsDir）。本类静态方法全部委托默认运行时的仓储，存量调用点零改动。
  *
- * @deprecated P5：改用 {@code holder.getRuntime().skills()}。
+ * @deprecated 改用 {@code holder.getRuntime().skills()}。
  */
 @Deprecated
 public class SkillManager {

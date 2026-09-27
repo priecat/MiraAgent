@@ -28,7 +28,7 @@ public class SkillBundle {
 
     /**
      * 缓存：bundleKey(来源目录, skillName) → SkillBundle。
-     * P5 多实例：key 必须带**来源目录**——两个运行时配不同 skillsDir 且有同名技能时，
+     * 多实例：key 必须带**来源目录**——两个运行时配不同 skillsDir 且有同名技能时，
      * 只按名字缓存会让后者命中前者的 zip（读错文件）。
      */
     private static final ConcurrentHashMap<String, SkillBundle> cache = new ConcurrentHashMap<>();
@@ -80,7 +80,7 @@ public class SkillBundle {
     /**
      * 获取或创建 SkillBundle（缓存）——按全局技能目录。
      *
-     * @deprecated P5 多实例：全局目录是"最后一次 init"的值，多实例下会取错来源。
+     * @deprecated 多实例：全局目录是"最后一次 init"的值，多实例下会取错来源。
      *             请改用 {@link #get(String, String)} 并显式传所属运行时的技能目录。
      */
     @Deprecated
@@ -221,7 +221,7 @@ public class SkillBundle {
     /**
      * 失效并关闭指定技能包的缓存实例——按全局技能目录。
      *
-     * @deprecated P5 多实例：全局目录是"最后一次 init"的值，多实例下会失效错对象。
+     * @deprecated 多实例：全局目录是"最后一次 init"的值，多实例下会失效错对象。
      *             请改用 {@link #invalidate(String, String)} 并显式传来源目录。
      */
     @Deprecated

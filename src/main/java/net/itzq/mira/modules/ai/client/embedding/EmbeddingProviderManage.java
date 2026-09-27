@@ -6,12 +6,12 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * EmbeddingProviderManage —— embedding 注册表的**兼容 facade**（P5 实例化后保留）。
+ * EmbeddingProviderManage —— embedding 注册表的**兼容 facade**。
  *
- * <p>P5 起注册表是实例组件 {@link EmbeddingRegistry}（每个 {@code KernelRuntime} 一份）。
+ * <p>注册表是实例组件 {@link EmbeddingRegistry}（每个 {@code KernelRuntime} 一份）。
  * 本类静态方法全部委托默认运行时的注册表，存量调用点零改动。
  *
- * @deprecated P5：改用 {@code holder.getRuntime().embeddingRegistry()}。
+ * @deprecated 改用 {@code holder.getRuntime().embeddingRegistry()}。
  */
 @Deprecated
 public class EmbeddingProviderManage {

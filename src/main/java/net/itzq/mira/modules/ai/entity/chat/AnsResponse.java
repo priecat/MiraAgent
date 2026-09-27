@@ -1,7 +1,7 @@
 package net.itzq.mira.modules.ai.entity.chat;
 
-import com.alibaba.fastjson2.JSONObject;
 import lombok.Data;
+import net.itzq.mira.core.utils.json.JsonObject;
 
 /**
  *  Response
@@ -27,6 +27,6 @@ public class AnsResponse {
 
     String msgId;
 
-    JSONObject info;
+    JsonObject info;
 
 }

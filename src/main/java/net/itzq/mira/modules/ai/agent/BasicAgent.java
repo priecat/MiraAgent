@@ -1,15 +1,15 @@
 package net.itzq.mira.modules.ai.agent;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONArray;
-import com.alibaba.fastjson2.JSONObject;
-import com.alibaba.fastjson2.JSONPath;
 import com.fasterxml.jackson.databind.JavaType;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.core.utils.IdGen;
 import net.itzq.mira.core.utils.JsonMapper;
+import net.itzq.mira.core.utils.json.JsonArray;
+import net.itzq.mira.core.utils.json.JsonObject;
+import net.itzq.mira.core.utils.json.JsonPathEval;
+import net.itzq.mira.core.utils.json.JsonUtil;
 import net.itzq.mira.modules.ai.agent.event.EventCenter;
 import net.itzq.mira.modules.ai.agent.event.EventHook;
 import net.itzq.mira.modules.ai.agent.event.HookResult;
@@ -30,7 +30,7 @@ import net.itzq.mira.modules.ai.entity.chat.ReplyId;
 import net.itzq.mira.modules.ai.persistence.AbstractHistoryPersist;
 import net.itzq.mira.modules.ai.persistence.PersistedMessage;
 import net.itzq.mira.modules.ai.utils.ThreadPoolUtil;
-import org.apache.commons.lang3.StringUtils;
+import net.itzq.mira.core.utils.StringUtils;
 
 import java.security.MessageDigest;
 import java.util.*;
@@ -514,7 +514,7 @@ public class BasicAgent {
             return;
         }
 
-        JSONObject json = JSON.parseObject(response);
+        JsonObject json = JsonUtil.parseObject(response);
 
         // 解析AI返回内容
         String content = extractContent(json);
@@ -1397,10 +1397,10 @@ public class BasicAgent {
     /**
      * 从JSON响应中提取content（同步非流式响应解析）
      */
-    private String extractContent(JSONObject json) {
-        Object result = JSONPath.eval(json, "$.choices[0].delta.content");
+    private String extractContent(JsonObject json) {
+        Object result = JsonPathEval.eval(json, "$.choices[0].delta.content");
         if (result == null) {
-            result = JSONPath.eval(json, "$.choices[0].message.content");
+            result = JsonPathEval.eval(json, "$.choices[0].message.content");
         }
         return result != null ? result.toString() : null;
     }
@@ -1408,16 +1408,16 @@ public class BasicAgent {
     /**
      * 从JSON响应中提取tool_calls（同步非流式响应解析）
      */
-    private List<ToolCall> extractToolCalls(JSONObject json) {
+    private List<ToolCall> extractToolCalls(JsonObject json) {
         JavaType collectionType = JsonMapper.getInstance()
                 .createCollectionType(ArrayList.class, ToolCall.class);
-        Object deltaCalls = JSONPath.eval(json, "$.choices[0].delta.tool_calls");
-        if (deltaCalls instanceof JSONArray && !((JSONArray) deltaCalls).isEmpty()) {
+        Object deltaCalls = JsonPathEval.eval(json, "$.choices[0].delta.tool_calls");
+        if (deltaCalls instanceof JsonArray && !((JsonArray) deltaCalls).isEmpty()) {
             return JsonMapper.getInstance()
                     .fromJson(JsonMapper.toJsonString(deltaCalls), collectionType);
         }
-        Object messageCalls = JSONPath.eval(json, "$.choices[0].message.tool_calls");
-        if (messageCalls instanceof JSONArray && !((JSONArray) messageCalls).isEmpty()) {
+        Object messageCalls = JsonPathEval.eval(json, "$.choices[0].message.tool_calls");
+        if (messageCalls instanceof JsonArray && !((JsonArray) messageCalls).isEmpty()) {
             return JsonMapper.getInstance()
                     .fromJson(JsonMapper.toJsonString(messageCalls), collectionType);
         }

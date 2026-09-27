@@ -2,9 +2,9 @@ package net.itzq.mira.modules.ai.client.embedding;
 
 import cn.hutool.http.HttpRequest;
 import cn.hutool.http.HttpResponse;
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONArray;
-import com.alibaba.fastjson2.JSONObject;
+import net.itzq.mira.core.utils.json.JsonArray;
+import net.itzq.mira.core.utils.json.JsonObject;
+import net.itzq.mira.core.utils.json.JsonUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -87,7 +87,7 @@ public class HttpEmbeddingProvider implements EmbeddingProvider {
         try {
             String endpoint = apiUrl;
 
-            JSONObject body = new JSONObject();
+            JsonObject body = new JsonObject();
             body.put("input", text);
             body.put("model", model);
             body.put("dimensions", dimension);  // 指定输出维度
@@ -109,11 +109,11 @@ public class HttpEmbeddingProvider implements EmbeddingProvider {
                 }
 
                 String responseBody = response.body();
-                JSONObject json = JSON.parseObject(responseBody);
-                JSONArray data = json.getJSONArray("data");
+                JsonObject json = JsonUtil.parseObject(responseBody);
+                JsonArray data = json.getJsonArray("data");
 
                 if (data != null && !data.isEmpty()) {
-                    JSONArray embedding = data.getJSONObject(0).getJSONArray("embedding");
+                    JsonArray embedding = data.getJsonObject(0).getJsonArray("embedding");
                     float[] result = new float[embedding.size()];
                     for (int i = 0; i < embedding.size(); i++) {
                         result[i] = embedding.getFloat(i);

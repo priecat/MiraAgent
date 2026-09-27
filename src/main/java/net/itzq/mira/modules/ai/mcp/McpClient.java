@@ -1,7 +1,5 @@
 package net.itzq.mira.modules.ai.mcp;
 
-import com.alibaba.fastjson2.JSONObject;
-
 import java.util.List;
 
 /**

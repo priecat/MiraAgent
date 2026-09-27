@@ -4,8 +4,8 @@ import cn.hutool.core.net.url.UrlBuilder;
 import cn.hutool.http.HttpRequest;
 import cn.hutool.http.HttpResponse;
 import cn.hutool.http.Method;
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONObject;
+import net.itzq.mira.core.utils.json.JsonObject;
+import net.itzq.mira.core.utils.json.JsonUtil;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 
 import java.net.URLEncoder;
@@ -37,9 +37,9 @@ public class HttpToolInvoker {
         defaultMaxBytes = bytes;
     }
 
-    public String execute(JSONObject args, AgentContextHolder contextHolder, HttpToolMeta meta) {
+    public String execute(JsonObject args, AgentContextHolder contextHolder, HttpToolMeta meta) {
         if (meta == null) {
-            JSONObject rtn = new JSONObject();
+            JsonObject rtn = new JsonObject();
             rtn.put("error", "工具元数据缺失");
             return rtn.toJSONString();
         }
@@ -47,9 +47,9 @@ public class HttpToolInvoker {
         return invoke(meta, args, contextHolder);
     }
 
-    protected static String invoke(HttpToolMeta op, JSONObject args, AgentContextHolder contextHolder) {
+    protected static String invoke(HttpToolMeta op, JsonObject args, AgentContextHolder contextHolder) {
         if (args == null) {
-            args = new JSONObject();
+            args = new JsonObject();
         }
         try {
             String base = op.getServerUrl() != null ? op.getServerUrl() : "";
@@ -164,7 +164,7 @@ public class HttpToolInvoker {
                     HttpParam p = bodyParams.get(0);
                     bodyPayload = args.get(p.getName());
                 } else {
-                    JSONObject bodyObj = new JSONObject();
+                    JsonObject bodyObj = new JsonObject();
                     for (HttpParam p : bodyParams) {
                         Object val = args.get(p.getName());
                         if (val != null) {
@@ -179,7 +179,7 @@ public class HttpToolInvoker {
                     if (bodyPayload instanceof String) {
                         req.body((String) bodyPayload);
                     } else {
-                        req.body(JSON.toJSONString(bodyPayload));
+                        req.body(JsonUtil.toJson(bodyPayload));
                     }
                 }
             }
@@ -207,7 +207,7 @@ public class HttpToolInvoker {
                 return normalize(resp, maxBytes);
             }
         } catch (Exception e) {
-            JSONObject rtn = new JSONObject();
+            JsonObject rtn = new JsonObject();
             rtn.put("error", e.getMessage());
             return rtn.toJSONString();
         }
@@ -234,10 +234,10 @@ public class HttpToolInvoker {
         if (bodyStr != null && bodyStr.length() > maxBytes) {
             bodyStr = bodyStr.substring(0, maxBytes) + "...(truncated)";
         }
-        JSONObject out = new JSONObject();
+        JsonObject out = new JsonObject();
         out.put("status", status);
         try {
-            Object parsed = JSON.parse(bodyStr);
+            Object parsed = JsonUtil.parse(bodyStr);
             out.put("body", parsed);
         } catch (Exception e) {
             out.put("body", bodyStr);

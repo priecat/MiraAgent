@@ -1,6 +1,6 @@
 package net.itzq.mira.modules.ai.http;
 
-import com.alibaba.fastjson2.JSONObject;
+import net.itzq.mira.core.utils.json.JsonObject;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.tool.AiToolDefine;
 import net.itzq.mira.modules.ai.tool.AiToolParam;
@@ -19,7 +19,7 @@ public class HttpToolDefine implements AiToolDefine {
     static {
         try {
             EXECUTE_METHOD = HttpToolInvoker.class.getMethod("execute",
-                    JSONObject.class,
+                    JsonObject.class,
                     AgentContextHolder.class,
                     HttpToolMeta.class);
         } catch (NoSuchMethodException e) {

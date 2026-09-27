@@ -49,7 +49,7 @@ public class McpServerConfig {
     /**
      * 从JSON对象解析配置
      */
-    public static McpServerConfig fromJson(String name, com.alibaba.fastjson2.JSONObject json) {
+    public static McpServerConfig fromJson(String name, net.itzq.mira.core.utils.json.JsonObject json) {
         McpServerConfig config = new McpServerConfig();
         config.setName(name);
 
@@ -59,7 +59,7 @@ public class McpServerConfig {
             config.setArgs(json.getJSONArray("args").toJavaList(String.class));
         }
         if (json.containsKey("env")) {
-            com.alibaba.fastjson2.JSONObject envObj = json.getJSONObject("env");
+            net.itzq.mira.core.utils.json.JsonObject envObj = json.getJSONObject("env");
             Map<String, String> envMap = new HashMap<>();
             for (String key : envObj.keySet()) {
                 envMap.put(key, envObj.getString(key));

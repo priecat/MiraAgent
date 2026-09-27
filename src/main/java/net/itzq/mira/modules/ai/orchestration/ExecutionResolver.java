@@ -32,7 +32,7 @@ public final class ExecutionResolver {
     private ExecutionResolver() {
     }
 
-    /** 工具包解析回调：宿主实现（mira-code 走 ToolkitStore）；fail-closed 抛异常。 */
+    /** 工具包解析回调*/
     public interface ToolResolver {
         Set<String> resolve(List<?> kitIds);
     }
@@ -82,7 +82,7 @@ public final class ExecutionResolver {
     }
 
     /**
-     * 按**指定声明**解析（P5 多实例 / 声明导入端用）：不读默认运行时的声明。
+     * 按**指定声明**解析（多实例 /声明导入端用）：不读默认运行时的声明。
      *
      * @param declaration 用于校验模型 alias 的声明实例（null → 回落默认运行时声明）
      */

@@ -8,7 +8,7 @@ import net.itzq.mira.modules.ai.tool.ToolCallResult;
 import net.itzq.mira.modules.ai.mcp.McpManager;
 import net.itzq.mira.modules.ai.mcp.McpPrepared;
 import net.itzq.mira.modules.toolfun.ToolFun;
-import org.apache.commons.lang3.StringUtils;
+import net.itzq.mira.core.utils.StringUtils;
 
 /**
  * MCP工具网关，让AI通过function call调用MCP工具

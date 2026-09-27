@@ -10,7 +10,7 @@ import net.itzq.mira.modules.ai.client.openai.chat.entity.Choice;
 import net.itzq.mira.modules.ai.client.openai.tool.ToolCall;
 import net.itzq.mira.modules.ai.client.openai.usage.Usage;
 import net.itzq.mira.modules.ai.client.sse.SseException;
-import org.apache.commons.lang3.StringUtils;
+import net.itzq.mira.core.utils.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;

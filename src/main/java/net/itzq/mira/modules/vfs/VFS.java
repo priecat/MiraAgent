@@ -4,7 +4,6 @@ import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.modules.workspace.Workspace;
 import net.itzq.mira.modules.workspace.WorkspaceConfig;
 import net.itzq.mira.modules.vfs.model.SearchResult;
-import net.itzq.mira.modules.vfs.storage.LuceneStorage;
 
 import java.io.File;
 import java.io.IOException;
@@ -27,12 +26,6 @@ import java.util.stream.Stream;
  *     <li>首次 <b>写入</b> 才真正创建 zip 文件并打开 FileSystem</li>
  *     <li>读取/查询操作在 zip 不存在时直接返回空值，不产生空文件</li>
  * </ul>
- *
- * <p>支持 Lucene 全文索引，索引目录与 zip 文件同级：
- * <pre>
- *   &lt;dataDir&gt;/ab/cd/&lt;sessionId&gt;.zip      zip 文件
- *   &lt;dataDir&gt;/ab/cd/&lt;sessionId&gt;-vfs-lucene/   Lucene 索引目录
- * </pre>
  */
 @Slf4j
 public class VFS implements Workspace {
@@ -41,7 +34,7 @@ public class VFS implements Workspace {
     private static volatile WorkspaceConfig globalConfig;
 
     /**
-     * 本实例所属工作空间的配置（P5 实例化）：由 {@code VfsService}（每个 KernelRuntime 一个）
+     * 本实例所属工作空间的配置（实例化）：由 {@code VfsService}（每个 KernelRuntime 一个）
      * 注入 —— 数据目录因此按运行时隔离；{@code createZip} 形态（无服务）为 null，回落全局配置。
      */
     private final WorkspaceConfig config;
@@ -51,12 +44,6 @@ public class VFS implements Workspace {
 
     /** 会话对应的 zip 文件路径（持久化在磁盘上） */
     private final Path zipFile;
-
-    /** Lucene 索引目录路径 */
-    private final String lucenePath;
-
-    /** Lucene 全文索引存储 */
-    private final LuceneStorage luceneStorage;
 
     /** 懒加载的 FileSystem，写入首次发生时才创建 */
     private volatile FileSystem fs;
@@ -107,7 +94,7 @@ public class VFS implements Workspace {
     }
 
     /**
-     * 按**指定配置**加载会话工作空间（P5 实例化路径）：由 {@code VfsService} 调用，
+     * 按**指定配置**加载会话工作空间（实例化路径）：由 {@code VfsService} 调用，
      * 每个 KernelRuntime 用自己的 dataDir，实例间天然隔离。
      */
     static VFS loadWith(WorkspaceConfig config, String sessionId) {
@@ -133,25 +120,11 @@ public class VFS implements Workspace {
                 + File.separator + sessionId + ".zip";
     }
 
-    /**
-     * 构建会话 Lucene 索引路径: {@code <dataDir>/ab/cd/<sessionId>-vfs-lucene/}
-     */
-    private static String buildSessionLucenePath(WorkspaceConfig config, String sessionId) {
-        String a = sessionId.substring(0, 2);
-        String b = sessionId.substring(2, 4);
-        return config.getDataDir()
-                + File.separator + a
-                + File.separator + b
-                + File.separator + sessionId + "-vfs-lucene";
-    }
-
     private VFS(String sessionId, WorkspaceConfig config) {
         this.sessionId = sessionId;
         this.config = config;
         this.zipFile = Paths.get(buildSessionZipPath(config, sessionId));
-        this.lucenePath = buildSessionLucenePath(config, sessionId);
-        this.luceneStorage = config.isLuceneEnabled() ? new LuceneStorage(lucenePath) : null;
-        log.debug("VFS 已创建（延迟初始化）: sessionId={}, zipFile={}, lucenePath={}", sessionId, zipFile, lucenePath);
+        log.debug("VFS 已创建（延迟初始化）: sessionId={}, zipFile={}", sessionId, zipFile);
     }
 
     /** 本实例生效的配置（会话实例持自身服务配置；createZip 形态回落全局配置） */
@@ -162,7 +135,7 @@ public class VFS implements Workspace {
     // ==================== 1. 显式创建/打开（可选入口） ====================
 
     public static VFS createZip(Path zipFile) throws IOException {
-        // 注意：此方法创建的 VFS 没有 sessionId，不支持 Lucene 索引
+        // 注意：此方法创建的 VFS 没有 sessionId
         // 如需完整功能，请使用 VFS.load(sessionId)
         return new VFS(null, zipFile, null);
     }
@@ -179,8 +152,6 @@ public class VFS implements Workspace {
         this.sessionId = sessionId;
         this.config = config;
         this.zipFile = zipFile;
-        this.lucenePath = null;
-        this.luceneStorage = null;
     }
 
     // ==================== 核心：懒加载 FileSystem ====================
@@ -448,12 +419,7 @@ public class VFS implements Workspace {
         if (!Files.exists(p)) {
             throw new NoSuchFileException(path);
         }
-        // 先判断是否为文件，删除后无法再判断
-        boolean isFile = Files.isRegularFile(p);
         Files.delete(p);
-        if (isFile) {
-            deleteDocument(path);
-        }
     }
 
     @Override
@@ -466,12 +432,7 @@ public class VFS implements Workspace {
         if (!Files.exists(p)) {
             return false;
         }
-        // 先判断是否为文件，删除后无法再判断
-        boolean isFile = Files.isRegularFile(p);
         Files.deleteIfExists(p);
-        if (isFile) {
-            deleteDocument(path);
-        }
         return true;
     }
 
@@ -493,12 +454,8 @@ public class VFS implements Workspace {
                     }
                 });
             }
-
-            // 删除索引
-            deleteIndexByPrefix(path);
         } else if (Files.exists(p)) {
             Files.delete(p);
-            deleteDocument(path);
         }
     }
 
@@ -555,9 +512,6 @@ public class VFS implements Workspace {
 
             // 删除旧目录及其内容
             deleteRecursively(ns);
-
-            // 同步索引
-            reindexAfterDirMove(ns, nt);
             return;
         }
 
@@ -574,8 +528,7 @@ public class VFS implements Workspace {
     /**
      * 添加文档（支持分段）。
      *
-     * <p>将 sourceBytes（若为 null 则用分段拼接文本）写入 zip，
-     * 并把分段拼接后的完整文本索引进 Lucene。docId 直接使用文件虚拟路径。
+     * <p>将 sourceBytes（若为 null 则用分段拼接文本）写入 zip。docId 直接使用文件虚拟路径。
      *
      * @param fileName    原始文件名（如 report.pdf）
      * @param sourceBytes 源文件字节（可为 null）
@@ -610,7 +563,7 @@ public class VFS implements Workspace {
             sourceBytes = fullText.getBytes(StandardCharsets.UTF_8);
         }
 
-        // 1. 写入 zip（ZipFS 不支持覆盖已存在条目，需先删除）
+        // 写入 zip（ZipFS 不支持覆盖已存在条目，需先删除）
         try {
             FileSystem fileSystem = ensureOpenForWrite();
             Path p = normalize(fileSystem, fullPath);
@@ -623,85 +576,8 @@ public class VFS implements Workspace {
             throw new RuntimeException("写入文件失败: " + fullPath, e);
         }
 
-        // 2. Lucene 索引（索引完整文本）
-        if (luceneStorage != null) {
-            luceneStorage.indexDocument(fullPath, fullPath, fullText);
-        }
-
         log.info("文档添加成功: docId={}, fileName={}, chunks={}", fullPath, fileName, textChunks.size());
         return fullPath;
-    }
-
-    /**
-     * 搜索：返回相关文件列表（文件级别，非片段）。
-     *
-     * @param query      查询关键词
-     * @param resultSize 最大返回数量
-     * @return 相关文件列表
-     */
-    @Override
-    public List<SearchResult> search(String query, int resultSize) {
-        // 未启用 Lucene 索引时，打印警告并返回空结果
-        WorkspaceConfig cfg = effectiveConfig();
-        if (cfg == null || !cfg.isLuceneEnabled() || luceneStorage == null) {
-            log.warn("Lucene 索引未启用，搜索返回空结果: query={}", query);
-            return new ArrayList<>();
-        }
-
-        List<ChunkMatch> chunkMatches = new ArrayList<>();
-
-        // Lucene 全文检索（LuceneStorage 内部按需懒加载：仅打开已存在的索引，不创建新目录）
-        List<SearchResult> luceneResults = luceneStorage.search(query, cfg.getLuceneTopN());
-        for (SearchResult r : luceneResults) {
-            chunkMatches.add(new ChunkMatch(r.getDocId(), 0, r.getScore(), "lucene"));
-        }
-        log.debug("Lucene 搜索返回 {} 个结果", luceneResults.size());
-
-        // 聚合到文件级别
-        Map<String, SearchResult> fileResults = new LinkedHashMap<>();
-        for (ChunkMatch match : chunkMatches) {
-            String docId = match.docId;
-            if (docId == null) {
-                continue;
-            }
-
-            fileResults.computeIfAbsent(docId, id -> {
-                // 检查文件是否存在
-                if (!exists(id)) {
-                    return null;
-                }
-                String fileName = extractFileName(id);
-                String filePath = id;
-                SearchResult sr = new SearchResult(id, fileName, filePath, 0.0, match.source);
-                return sr;
-            });
-
-            SearchResult result = fileResults.get(docId);
-            if (result != null) {
-                if (match.score > result.getScore()) {
-                    result.setScore(match.score);
-                }
-                result.addMatchedChunk(new SearchResult.ChunkMatch(null,
-                        match.chunkIndex,
-                        match.score,
-                        "分段 " + match.chunkIndex));
-            }
-        }
-
-        // 按最高相似度排序
-        List<SearchResult> results = fileResults.values()
-                .stream()
-                .filter(Objects::nonNull)
-                .sorted((a, b) -> Double.compare(b.getScore(), a.getScore()))
-                .collect(Collectors.toList());
-
-        // 限制数量
-        if (results.size() > resultSize) {
-            results = results.subList(0, resultSize);
-        }
-
-        log.info("搜索完成: query={}, 结果数={}", query, results.size());
-        return results;
     }
 
     /**
@@ -779,64 +655,6 @@ public class VFS implements Workspace {
         return results;
     }
 
-    /**
-     * 删除文档索引
-     */
-    private void deleteDocument(String docId) {
-        if (luceneStorage != null) {
-            luceneStorage.deleteDocument(docId);
-        }
-    }
-
-    /**
-     * 删除目录后同步删除该目录前缀下的所有 Lucene 索引
-     */
-    private void deleteIndexByPrefix(String dirPath) {
-        if (luceneStorage == null) {
-            return;
-        }
-        String prefix = dirPath.endsWith("/") ? dirPath : dirPath + "/";
-        luceneStorage.deleteByPrefix(prefix);
-    }
-
-    /**
-     * 目录移动/重命名后同步 Lucene 索引
-     */
-    private void reindexAfterDirMove(String oldDirPath, String newDirPath) {
-        if (luceneStorage == null) {
-            return;
-        }
-        String oldPrefix = oldDirPath.endsWith("/") ? oldDirPath : oldDirPath + "/";
-        // 删除旧前缀的所有索引
-        luceneStorage.deleteByPrefix(oldPrefix);
-
-        // 对新目录下所有文件重新建立索引
-        try {
-            FileSystem local = getFsForRead();
-            if (local == null) {
-                return;
-            }
-            Path newDir = normalize(local, newDirPath);
-            if (!Files.exists(newDir)) {
-                return;
-            }
-            try (Stream<Path> walk = Files.walk(newDir)) {
-                walk.filter(Files::isRegularFile).forEach(file -> {
-                    String virtualPath = normalizeVirtual(file.toString());
-                    try {
-                        byte[] data = Files.readAllBytes(file);
-                        String text = new String(data, StandardCharsets.UTF_8);
-                        luceneStorage.indexDocument(virtualPath, virtualPath, text);
-                    } catch (IOException e) {
-                        log.warn("重新索引失败: {}", virtualPath);
-                    }
-                });
-            }
-        } catch (IOException e) {
-            log.warn("目录移动后重建索引失败: {}", e.getMessage());
-        }
-    }
-
     // ==================== 7. 释放 ====================
 
     @Override
@@ -849,10 +667,6 @@ public class VFS implements Workspace {
                     fs = null;
                 }
             }
-        }
-        // 关闭 Lucene 索引
-        if (luceneStorage != null) {
-            luceneStorage.close();
         }
         log.debug("VFS 已关闭: sessionId={}", sessionId);
     }
@@ -948,22 +762,6 @@ public class VFS implements Workspace {
         }
         if (!sessionId.matches("[0-9a-fA-F]{32}")) {
             throw new IllegalArgumentException("sessionId 必须是32位十六进制字符");
-        }
-    }
-
-    // ==================== 内部类 ====================
-
-    private static class ChunkMatch {
-        final String docId;
-        final int chunkIndex;
-        final double score;
-        final String source;
-
-        ChunkMatch(String docId, int chunkIndex, double score, String source) {
-            this.docId = docId;
-            this.chunkIndex = chunkIndex;
-            this.score = score;
-            this.source = source;
         }
     }
 }

@@ -35,7 +35,7 @@ public class HttpSSEClient {
 
     /** 异步 SSE 请求线程池 */
     private volatile ExecutorService executorService;
-    // P5 多实例：超时不再在构造期固定。SSE 客户端是进程级共享基础设施（线程池共享），
+    // 多实例：超时不再在构造期固定。SSE 客户端是进程级共享基础设施（线程池共享），
     // 而超时是 per-runtime 的声明配置——核心方法提供带 SseClientConfig 的重载
     // （service 构造时从**自己的**运行时解析快照）；旧签名走 defaultTimeouts()，
     // 每次请求从默认运行时声明读取，声明后置变更即时生效。
@@ -187,7 +187,7 @@ public class HttpSSEClient {
 
     /**
      * 同步POST请求（JSON格式，带请求头与**显式超时**）。
-     * P5 多实例：调用方（各 OpenAI 兼容 service）传自己运行时的配置快照。
+     * 多实例：调用方（各 OpenAI 兼容 service）传自己运行时的配置快照。
      */
     public String postJsonSync(String url, String jsonBody, Map<String, String> headers,
             SseClientConfig timeouts) {
@@ -460,7 +460,7 @@ public class HttpSSEClient {
     }
 
     /**
-     * 发送POST SSE请求（**显式超时**）。P5 多实例：调用方传自己运行时的配置快照；
+     * 发送POST SSE请求（**显式超时**）。多实例：调用方传自己运行时的配置快照；
      * 线程池仍为进程级共享基础设施。
      */
     public CompletableFuture<Void> postSse(String url, String body, Map<String, String> headers,

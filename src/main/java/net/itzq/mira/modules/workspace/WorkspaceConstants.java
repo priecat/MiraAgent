@@ -13,7 +13,6 @@ public class WorkspaceConstants {
 
     // ==================== 默认值 ====================
     public static final int DEFAULT_TOP_N = 10;
-    public static final int DEFAULT_LUCENE_TOP_N = 100;
 
     // ==================== 文件系统路径 ====================
     public static final String FS_ROOT = "/";

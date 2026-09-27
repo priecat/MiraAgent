@@ -1,13 +1,12 @@
 package net.itzq.mira.modules.ai.utils;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONArray;
-import com.alibaba.fastjson2.JSONObject;
-import com.alibaba.fastjson2.JSONWriter;
 import lombok.extern.slf4j.Slf4j;
+import net.itzq.mira.core.utils.json.JsonArray;
+import net.itzq.mira.core.utils.json.JsonObject;
+import net.itzq.mira.core.utils.json.JsonUtil;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.agent.BasicAgent;
-import org.apache.commons.lang3.StringUtils;
+import net.itzq.mira.core.utils.StringUtils;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -28,7 +27,7 @@ public class JsonRepair {
 
         Object o = fastTest(fastReplaceStr);
         if (o != null) {
-            return JSON.toJSONString(o);
+            return JsonUtil.toJson(o);
         }
 
         // step 2
@@ -37,7 +36,7 @@ public class JsonRepair {
             o = fastTest(repairStr);
         }
         if (o != null) {
-            return JSON.toJSONString(o);
+            return JsonUtil.toJson(o);
         }
 
         // aiRepair
@@ -49,7 +48,7 @@ public class JsonRepair {
             o = fastTest(aiRepair);
         }
         if (o != null) {
-            return JSON.toJSONString(o);
+            return JsonUtil.toJson(o);
         }
 
         log.warn("[CheckJson] 无法修复的json : {}", json);
@@ -87,7 +86,7 @@ public class JsonRepair {
     public static Object fastTest(String json) {
 
         try {
-            Object parse = JSON.parse(json);
+            Object parse = JsonUtil.parse(json);
             return parse;
         } catch (Exception e) {
             return null;
@@ -101,13 +100,13 @@ public class JsonRepair {
 
             log.info("[JsonRepair] 输入文本：{}", input);
 
-            JSONObject res = JSONObject.parseObject(JSONObject.toJSONString(result));
+            JsonObject res = JsonUtil.parseObject(JsonUtil.toJson(result));
             if (res.containsKey("result")) {
                 String jsonString = res.getString("result");
                 log.info("[JsonRepair] 输出文本：{}", jsonString);
                 return jsonString;
             } else {
-                log.info("[JsonRepair] 测试失败：{}", JSONObject.toJSONString(result));
+                log.info("[JsonRepair] 测试失败：{}", JsonUtil.toJson(result));
                 return null;
             }
 
@@ -125,7 +124,7 @@ public class JsonRepair {
                     String rawContent = llmResponse.trim();
 
                     try {
-                        Object parsed = JSON.parse(rawContent);
+                        Object parsed = JsonUtil.parse(rawContent);
                         if (parsed instanceof String) {
                             rawContent = (String) parsed;
                         }
@@ -135,13 +134,13 @@ public class JsonRepair {
                     String extractedContent = extractJsonContent(rawContent);
                     if (extractedContent != null && !extractedContent.isEmpty()) {
                         try {
-                            Object finalResult = JSON.parse(extractedContent);
+                            Object finalResult = JsonUtil.parse(extractedContent);
                             return successMap(finalResult);
                         } catch (Exception var9) {
                             String repaired = repairJson(extractedContent);
 
                             try {
-                                Object finalResult = JSON.parse(repaired);
+                                Object finalResult = JsonUtil.parse(repaired);
                                 return successMap(finalResult);
                             } catch (Exception var8) {
                                 Map<String, Object> error = errorMap("转换失败：无法解析JSON");
@@ -399,11 +398,11 @@ public class JsonRepair {
             if (success) {
                 Object resultObj = result.get("result");
 
-                actualOutput = JSON.toJSONString(resultObj, JSONWriter.Feature.WriteMapNullValue);
-                if (resultObj instanceof JSONObject) {
-                    System.out.println("输出类型: JSONObject");
-                } else if (resultObj instanceof JSONArray) {
-                    System.out.println("输出类型: JSONArray");
+                actualOutput = JsonUtil.writeNulls(resultObj);
+                if (resultObj instanceof JsonObject) {
+                    System.out.println("输出类型: JsonObject");
+                } else if (resultObj instanceof JsonArray) {
+                    System.out.println("输出类型: JsonArray");
                 }
             } else {
                 actualOutput = (String) result.get("error");

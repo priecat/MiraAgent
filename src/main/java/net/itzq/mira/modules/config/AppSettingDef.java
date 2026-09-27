@@ -16,6 +16,8 @@ import lombok.Data;
  */
 @Data
 @Builder
+@lombok.NoArgsConstructor
+@lombok.AllArgsConstructor
 public class AppSettingDef {
 
     public static final String TYPE_STRING = "string";

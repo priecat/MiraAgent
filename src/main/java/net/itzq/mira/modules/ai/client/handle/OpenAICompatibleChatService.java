@@ -11,7 +11,7 @@ import net.itzq.mira.modules.ai.tool.FCUtil;
 import net.itzq.mira.modules.ai.client.openai.tool.Tool;
 import net.itzq.mira.modules.config.GlobalConfigManager;
 import net.itzq.mira.modules.config.SseClientConfig;
-import org.apache.commons.lang3.StringUtils;
+import net.itzq.mira.core.utils.StringUtils;
 
 import java.lang.reflect.Constructor;
 import java.util.*;
@@ -30,10 +30,10 @@ public class OpenAICompatibleChatService {
 
     private ModelApiConfig config;
 
-    /** 工具注册表（P5）：请求里 functions → Tool 实体从本实例的注册表解析（多实例隔离） */
+    /** 工具注册表：请求里 functions → Tool 实体从本实例的注册表解析（多实例隔离） */
     private final net.itzq.mira.modules.ai.tool.ToolRegistry toolRegistry;
 
-    /** SSE 超时快照（P5 多实例）：取本 service 所属运行时的声明，请求时传给 HttpSSEClient */
+    /** SSE 超时快照（多实例）：取本 service 所属运行时的声明，请求时传给 HttpSSEClient */
     private final SseClientConfig sseTimeouts;
 
     public OpenAICompatibleChatService(ModelApiConfig config) {
@@ -47,7 +47,7 @@ public class OpenAICompatibleChatService {
                 ? net.itzq.mira.modules.runtime.KernelRuntime.defaultRuntime().toolRegistry()
                 : toolRegistry;
         this.httpSSEClient = HttpSSEClient.getInstance();
-        // P5 多实例：SSE 超时取**本 service 所属运行时**的声明（经注册表反向引用），
+        // 多实例：SSE 超时取**本 service 所属运行时**的声明（经注册表反向引用），
         // 声明 reset/import 时 service 随之重建、快照随之更新
         this.sseTimeouts = resolveSseTimeouts(this.toolRegistry);
     }

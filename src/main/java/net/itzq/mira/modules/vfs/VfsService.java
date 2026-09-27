@@ -10,7 +10,7 @@ import java.nio.file.Path;
 /**
  * 虚拟文件系统服务（编排运行时协议 · 实例组件）。
  *
- * <p>P5 实例化：每个内核运行时（KernelRuntime）持有一个服务实例，**数据目录随实例走**
+ * <p>实例化：每个内核运行时（KernelRuntime）持有一个服务实例，**数据目录随实例走**
  * （{@code <runtime.dataDir>/vfs} 由调用方给出）——同进程多实例的同名 vfsId 互不可见，
  * {@code setVfsId(historyId)} 语义不变（隔离由根目录保证，命名无需改）。
  *
@@ -47,7 +47,7 @@ public class VfsService {
         return new VfsService(provider);
     }
 
-    /** 便捷构造：只用数据目录（Lucene 等其余参数取 WorkspaceConfig 默认值） */
+    /** 便捷构造：只用数据目录（其余参数取 WorkspaceConfig 默认值） */
     public VfsService(String dataDir) {
         WorkspaceConfig c = new WorkspaceConfig();
         c.setDataDir(dataDir);

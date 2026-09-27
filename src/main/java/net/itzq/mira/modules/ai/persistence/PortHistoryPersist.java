@@ -31,7 +31,7 @@ public class PortHistoryPersist extends AbstractHistoryPersist {
 
     /**
      * @param persistEvents 是否经端口落事件。宿主已在事件管道层落库时传 false
-     *                      （否则同一事件落两遍）——如 mira-code 的 PersistingSseSink 路径。
+     *                      （否则同一事件落两遍）。
      */
     public static PortHistoryPersist of(PersistencePort port, String historyId, boolean persistEvents) {
         return new PortHistoryPersist(port == null ? PersistencePort.NOOP : port, historyId, persistEvents);

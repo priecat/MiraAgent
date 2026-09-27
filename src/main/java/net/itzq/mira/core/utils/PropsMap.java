@@ -1,8 +1,8 @@
 package net.itzq.mira.core.utils;
 
-import com.alibaba.fastjson2.JSONObject;
-import com.alibaba.fastjson2.util.TypeUtils;
 import lombok.extern.slf4j.Slf4j;
+import net.itzq.mira.core.utils.json.JsonUtil;
+import net.itzq.mira.core.utils.json.TypeConvert;
 
 import java.io.Serializable;
 import java.math.BigDecimal;
@@ -67,12 +67,12 @@ public class PropsMap implements Map<String, Object>, Serializable {
 
     // Map To JsonString
     public String toJson() {
-        return JSONObject.toJSONString(this.params);
+        return JsonUtil.toJson(this.params);
     }
 
     // Map To Bean
     public <T> T toBean(Class<T> clazz) {
-        return JSONObject.parseObject(toJson(), clazz);
+        return JsonUtil.parseObject(toJson(), clazz);
     }
 
     //  key names
@@ -246,75 +246,75 @@ public class PropsMap implements Map<String, Object>, Serializable {
         return sb.toString();
     }
 
-    // com.alibaba.fastjson.util.TypeUtils
+    // 宽松类型转换（原 com.alibaba.fastjson.util.TypeUtils 语义）
     public Boolean getBoolean(String key) {
         Object value = this.get(key);
-        return value == null ? null : TypeUtils.toBoolean(value);
+        return value == null ? null : TypeConvert.toBoolean(value);
     }
 
     public boolean getBooleanValue(String key, boolean defaultVal) {
         Object value = this.get(key);
-        Boolean booleanVal = TypeUtils.toBoolean(value);
+        Boolean booleanVal = TypeConvert.toBoolean(value);
         return booleanVal == null ? defaultVal : booleanVal;
     }
 
     public Integer getInteger(String key) {
         Object value = this.get(key);
-        return TypeUtils.toInteger(value);
+        return TypeConvert.toInteger(value);
     }
 
     public int getIntValue(String key, int defaultVal) {
         Object value = this.get(key);
-        Integer intVal = TypeUtils.toInteger(value);
+        Integer intVal = TypeConvert.toInteger(value);
         return intVal == null ? defaultVal : intVal;
     }
 
     public Long getLong(String key) {
         Object value = this.get(key);
-        return TypeUtils.toLong(value);
+        return TypeConvert.toLong(value);
     }
 
     public long getLongValue(String key, long defaultVal) {
         Object value = this.get(key);
-        Long longVal = TypeUtils.toLong(value);
+        Long longVal = TypeConvert.toLong(value);
         return longVal == null ? defaultVal : longVal;
     }
 
     public Float getFloat(String key) {
         Object value = this.get(key);
-        return TypeUtils.toFloat(value);
+        return TypeConvert.toFloat(value);
     }
 
     public float getFloatValue(String key, float defaultVal) {
         Object value = this.get(key);
-        Float floatValue = TypeUtils.toFloat(value);
+        Float floatValue = TypeConvert.toFloat(value);
         return floatValue == null ? defaultVal : floatValue;
     }
 
     public Double getDouble(String key) {
         Object value = this.get(key);
-        return TypeUtils.toDouble(value);
+        return TypeConvert.toDouble(value);
     }
 
     public double getDoubleValue(String key, double defaultVal) {
         Object value = this.get(key);
-        Double doubleValue = TypeUtils.toDouble(value);
+        Double doubleValue = TypeConvert.toDouble(value);
         return doubleValue == null ? defaultVal : doubleValue;
     }
 
     public BigDecimal getBigDecimal(String key) {
         Object value = this.get(key);
-        return TypeUtils.toBigDecimal(value);
+        return TypeConvert.toBigDecimal(value);
     }
 
     public BigInteger getBigInteger(String key) {
         Object value = this.get(key);
-        return TypeUtils.toBigInteger(value);
+        return TypeConvert.toBigInteger(value);
     }
 
     public Date getDate(String key) {
         Object value = this.get(key);
-        return TypeUtils.toDate(value);
+        return TypeConvert.toDate(value);
     }
 
     // 2019-01-01 01:01:01 + yyyy-MM-dd HH:mm:ss -> Date

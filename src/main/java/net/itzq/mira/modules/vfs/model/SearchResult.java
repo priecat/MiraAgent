@@ -16,7 +16,7 @@ public class SearchResult  {
     private String realPath;           // 磁盘真实路径
     private String mappedPath;         // 映射路径（mapDir + 虚拟路径；未配置时等于真实路径）
     private double score;              // 最高相似度
-    private String source;             // 来源: "vector", "lucene", "grep"
+    private String source;             // 来源: "vector", "grep"
     private List<ChunkMatch> matchedChunks;  // 匹配的分段列表
 
     public SearchResult() {

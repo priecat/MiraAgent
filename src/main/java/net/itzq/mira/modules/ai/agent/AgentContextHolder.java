@@ -52,7 +52,7 @@ public class AgentContextHolder {
             net.itzq.mira.modules.ai.persistence.PersistencePort.NOOP;
 
     /**
-     * 内核运行时（P5 实例化）：**唯一的接线点**——执行链路（agent / 事件 / 工具调用）
+     * 内核运行时（实例化）：**唯一的接线点**——执行链路（agent / 事件 / 工具调用）
      * 都从这里取声明、模型注册表、工具注册表、VFS、技能仓储，因此同进程多实例天然隔离。
      *
      * <p>默认 null：读取时回落 {@link KernelRuntime#defaultRuntime()}（存量行为承载者），

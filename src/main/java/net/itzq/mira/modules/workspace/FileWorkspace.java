@@ -4,9 +4,8 @@ import net.itzq.mira.modules.vfs.model.Directory;
 import net.itzq.mira.modules.vfs.model.Document;
 import net.itzq.mira.modules.vfs.model.KBInfo;
 import net.itzq.mira.modules.vfs.model.SearchResult;
-import net.itzq.mira.modules.vfs.storage.LuceneStorage;
 import net.itzq.mira.modules.workspace.storage.FileStorage;
-import org.apache.commons.lang3.StringUtils;
+import net.itzq.mira.core.utils.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,42 +23,39 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Objects;
 import java.util.TreeSet;
 import java.util.UUID;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
  * Workspace -- 磁盘文件存储工作空间
  *
- * <p>每个实例对应一个磁盘存储目录 + 一个 Lucene 索引目录：
+ * <p>每个实例对应一个磁盘存储目录：
  * <pre>
  *   &lt;dataDir&gt;/ab/cd/&lt;sessionId&gt;/storage/   实际文件落盘目录
- *   &lt;dataDir&gt;/ab/cd/&lt;sessionId&gt;/lucene/    全文索引目录
  * </pre>
  *
  * <pre>{@code
- * // 1. 全局初始化（应用启动时调用一次）
+ * // 多实例（推荐）：配置随实例走，不写进程级全局状态
  * WorkspaceConfig config = new WorkspaceConfig();
  * config.setDataDir("./data/workspace-example");
- * Workspace.init(config);
  *
- * // 2. 创建/加载会话工作空间
- * try (Workspace vk = Workspace.load("abcdef1234567890abcdef1234567890")) {
- *
+ * // 方式一：按配置直接取会话工作空间
+ * try (Workspace vk = FileWorkspace.of(config, "abcdef1234567890abcdef1234567890")) {
  *     vk.write("/data/hello.txt", "Hello");
- *     String content = vk.readString("/data/hello.txt");
+ *     System.out.println(vk.readString("/data/hello.txt"));
  *     System.out.println(vk.listTree());
- *
- *     // 额外能力 -- 工作空间搜索
- *     List<SearchResult> results = vk.search("关键词", 5);
+ *     List<SearchResult> results = vk.grep("正则", 5);
  * }
+ *
+ * // 方式二：经内核运行时（数据目录跟随运行时，与 rt.vfs() 对称）
+ * // KernelRuntime rt = KernelRuntime.builder().name("app").dataDir("./data/app").build().start();
+ * // try (Workspace vk = rt.workspace().load("abcdef1234567890abcdef1234567890")) { ... }
  * }</pre>
+ *
+ * <p>兼容期仍保留静态 {@code init(config)} + {@code load(sessionId)}（走全局配置），
+ * 存量代码零改动；新代码请用实例入口。
  *
  * @author tangzq
  */
@@ -69,36 +65,71 @@ public class FileWorkspace implements Workspace {
 
     private static volatile WorkspaceConfig globalConfig;
 
+    /** 本实例生效的配置（多实例入口 {@link #of} 用；静态 {@link #load} 走 globalConfig） */
+    private final WorkspaceConfig config;
+
     private final String sessionId;
     private final String storagePath;
-    private final String lucenePath;
     private final FileStorage fileStorage;
-    private final LuceneStorage luceneStorage;
 
     // ==================== 构造与生命周期 ====================
 
-    private FileWorkspace(String sessionId) {
+    private FileWorkspace(WorkspaceConfig config, String sessionId) {
+        this.config = config;
         this.sessionId = sessionId;
 
         // 计算路径: <dataDir>/ab/cd/<sessionId>/（不立即创建磁盘目录，延迟到首次使用时）
-        String dir = buildSessionDir(sessionId);
+        String dir = buildSessionDir(config, sessionId);
         this.storagePath = dir + File.separator + "storage";
-        this.lucenePath = dir + File.separator + "lucene";
 
-        // 初始化存储层（均为延迟初始化，构造时不触碰磁盘）
-        this.fileStorage = new FileStorage(storagePath, globalConfig.getMapDir());
-        this.luceneStorage = globalConfig.isLuceneEnabled() ? new LuceneStorage(lucenePath) : null;
+        // 初始化存储层（延迟初始化，构造时不触碰磁盘）
+        this.fileStorage = new FileStorage(storagePath, config.getMapDir());
 
 
+    }
+
+    // ==================== 实例入口（多实例：配置随实例走，无全局状态） ====================
+
+    /**
+     * 按<b>指定配置</b>加载/创建会话工作空间（多实例入口）。
+     *
+     * <p>与静态 {@link #init(WorkspaceConfig)} + {@link #load(String)} 的区别：配置随实例传入，
+     * <b>不写进程级全局状态</b>——同一 JVM 内不同 {@code dataDir} 下的同名 sessionId 互不可见。
+     * 常用形态是经 {@code KernelRuntime.workspace().load(sessionId)}（数据目录跟随运行时）。
+     *
+     * @param config    工作空间配置（{@code dataDir} 必填）
+     * @param sessionId 32 位十六进制（无连字符）
+     */
+    public static FileWorkspace of(WorkspaceConfig config, String sessionId) {
+        if (config == null) {
+            throw new IllegalArgumentException("config 不能为 null");
+        }
+        if (config.getDataDir() == null || config.getDataDir().isEmpty()) {
+            throw new IllegalArgumentException("dataDir 不能为 null 或空");
+        }
+        validateSessionId(sessionId);
+        return new FileWorkspace(config, sessionId);
+    }
+
+    /** 便捷重载：只用数据目录（mapDir 留空 = 映射路径等于真实路径） */
+    public static FileWorkspace of(String dataDir, String sessionId) {
+        WorkspaceConfig cfg = new WorkspaceConfig();
+        cfg.setDataDir(dataDir);
+        return of(cfg, sessionId);
+    }
+
+    /** 本实例生效的工作空间配置 */
+    public WorkspaceConfig config() {
+        return config;
     }
 
     /**
      * 构建会话目录路径: <dataDir>/ab/cd/<sessionId>/
      */
-    private static String buildSessionDir(String sessionId) {
+    private static String buildSessionDir(WorkspaceConfig config, String sessionId) {
         String a = sessionId.substring(0, 2);
         String b = sessionId.substring(2, 4);
-        return globalConfig.getDataDir() + File.separator + a + File.separator + b + File.separator + sessionId;
+        return config.getDataDir() + File.separator + a + File.separator + b + File.separator + sessionId;
     }
 
     /**
@@ -130,31 +161,25 @@ public class FileWorkspace implements Workspace {
     }
 
     /**
-     * 加载或创建会话工作空间
+     * 加载或创建会话工作空间（<b>兼容 facade</b>：走 {@link #init} 设置的全局配置）。
+     *
+     * <p>多实例场景请改用 {@link #of(WorkspaceConfig, String)}，或经
+     * {@code KernelRuntime.workspace().load(sessionId)}（数据目录跟随运行时）。
      *
      * @param sessionId 32位UUID（无连字符）
-     * @return Workspace 实例（实现了 Closeable，推荐 try-with-resources）
      */
     public static FileWorkspace load(String sessionId) {
         if (globalConfig == null) {
             throw new IllegalStateException("Workspace 未初始化，请先调用 Workspace.init(config)");
         }
-        validateSessionId(sessionId);
-        try {
-            return new FileWorkspace(sessionId);
-        } catch (Exception e) {
-            throw new RuntimeException("加载工作空间失败: " + sessionId, e);
-        }
+        return of(globalConfig, sessionId);
     }
 
     /**
-     * 关闭并释放资源（含 Lucene 索引）
+     * 关闭并释放资源
      */
     @Override
     public void close() throws IOException {
-        if (luceneStorage != null) {
-            luceneStorage.close();
-        }
         log.debug("FileWorkspace 已关闭: sessionId={}", sessionId);
     }
 
@@ -442,7 +467,6 @@ public class FileWorkspace implements Workspace {
         // 目录：递归删除
         if (getStorage().isDirectory(np)) {
             getStorage().deleteDirectory(np, true);
-            deleteIndexByPrefix(np);
         }
     }
 
@@ -490,7 +514,6 @@ public class FileWorkspace implements Workspace {
         if (getStorage().isDirectory(ns) && getStorage().getDocumentByPath(ns) == null) {
             String nt = normalizePath(target);
             getStorage().renameDirectory(ns, nt);
-            reindexAfterDirMove(ns, nt);
             return;
         }
         // 源是文件，走文件复制+删除
@@ -519,7 +542,6 @@ public class FileWorkspace implements Workspace {
         String no = normalizePath(oldPath);
         String nn = normalizePath(newPath);
         getStorage().renameDirectory(no, nn);
-        reindexAfterDirMove(no, nn);
     }
 
     /**
@@ -541,9 +563,6 @@ public class FileWorkspace implements Workspace {
     public void deleteDirectory(String dirPath, boolean recursive) throws IOException {
         String np = normalizePath(dirPath);
         getStorage().deleteDirectory(np, recursive);
-        if (recursive) {
-            deleteIndexByPrefix(np);
-        }
     }
 
     /**
@@ -571,8 +590,7 @@ public class FileWorkspace implements Workspace {
     /**
      * 添加文档（支持分段）。
      *
-     * <p>将 sourceBytes（若为 null 则用分段拼接文本）写入磁盘，
-     * 并把分段拼接后的完整文本索引进 Lucene。docId 直接使用文件虚拟路径。
+     * <p>将 sourceBytes（若为 null 则用分段拼接文本）写入磁盘。docId 直接使用文件虚拟路径。
      *
      * @param fileName      原始文件名（如 report.pdf）
      * @param sourceBytes   源文件字节（可为 null）
@@ -608,90 +626,14 @@ public class FileWorkspace implements Workspace {
         }
 
         try {
-            // 1. 写入磁盘
+            // 写入磁盘
             fileStorage.writeFile(fullPath, sourceBytes);
         } catch (IOException e) {
             throw new RuntimeException("写入文件失败: " + fullPath, e);
         }
 
-        // 2. Lucene 索引（索引完整文本）
-        if (luceneStorage != null) {
-            luceneStorage.indexDocument(fullPath, fullPath, fullText);
-        }
-
         log.info("文档添加成功: docId={}, fileName={}, chunks={}", fullPath, fileName, textChunks.size());
         return fullPath;
-    }
-
-    /**
-     * 搜索：返回相关文件列表（文件级别，非片段）。
-     *
-     * @param query      查询关键词
-     * @param resultSize 最大返回数量
-     * @return 相关文件列表
-     */
-    public List<SearchResult> search(String query, int resultSize) {
-
-        // 未启用 Lucene 索引时，打印警告并返回空结果
-        if (!globalConfig.isLuceneEnabled() || luceneStorage == null) {
-            log.warn("Lucene 索引未启用，搜索返回空结果: query={}", query);
-            return new ArrayList<>();
-        }
-
-        List<ChunkMatch> chunkMatches = new ArrayList<>();
-
-        // Lucene 全文检索（LuceneStorage 内部按需懒加载：仅打开已存在的索引，不创建新目录）
-        List<SearchResult> luceneResults = luceneStorage.search(query, globalConfig.getLuceneTopN());
-        for (SearchResult r : luceneResults) {
-            chunkMatches.add(new ChunkMatch(r.getDocId(), 0, r.getScore(), "lucene"));
-        }
-        log.debug("Lucene 搜索返回 {} 个结果", luceneResults.size());
-
-        // 聚合到文件级别
-        Map<String, SearchResult> fileResults = new LinkedHashMap<>();
-        for (ChunkMatch match : chunkMatches) {
-            String docId = match.docId;
-            if (docId == null) {
-                continue;
-            }
-
-            fileResults.computeIfAbsent(docId, id -> {
-                Document doc = fileStorage.getDocumentByPath(id);
-                if (doc == null) {
-                    return null;
-                }
-                SearchResult sr = new SearchResult(doc.getDocId(), doc.getFileName(), doc.getFilePath(), 0.0, match.source);
-                sr.setRealPath(doc.getRealPath());
-                sr.setMappedPath(doc.getMappedPath());
-                return sr;
-            });
-
-            SearchResult result = fileResults.get(docId);
-            if (result != null) {
-                if (match.score > result.getScore()) {
-                    result.setScore(match.score);
-                }
-                result.addMatchedChunk(new SearchResult.ChunkMatch(null,
-                        match.chunkIndex,
-                        match.score,
-                        "分段 " + match.chunkIndex));
-            }
-        }
-
-        // 按最高相似度排序
-        List<SearchResult> results = fileResults.values()
-                .stream()
-                .filter(Objects::nonNull)
-                .sorted((a, b) -> Double.compare(b.getScore(), a.getScore()))
-                .collect(Collectors.toList());
-
-        // 限制数量
-        if (results.size() > resultSize) {
-            results = results.subList(0, resultSize);
-        }
-
-        log.info("搜索完成: query={}, 结果数={}", query, results.size());
-        return results;
     }
 
     /**
@@ -744,16 +686,13 @@ public class FileWorkspace implements Workspace {
     }
 
     /**
-     * 删除文档（docId 即文件虚拟路径），同时删除磁盘文件与 Lucene 索引。
+     * 删除文档（docId 即文件虚拟路径）。
      */
     public void deleteDocument(String docId) {
         try {
             fileStorage.deleteFile(docId);
         } catch (IOException e) {
             log.warn("删除文件失败: {}", docId);
-        }
-        if (luceneStorage != null) {
-            luceneStorage.deleteDocument(docId);
         }
         log.info("文档已删除: docId={}", docId);
     }
@@ -763,39 +702,6 @@ public class FileWorkspace implements Workspace {
      */
     public List<Document> listDocuments() {
         return fileStorage.listDocuments();
-    }
-
-    // ==================== 索引同步（供目录操作调用）====================
-
-    /**
-     * 目录移动/重命名后同步 Lucene 索引：删除旧前缀下的索引，按新路径重新索引。
-     *
-     * @param oldDirPath 旧目录虚拟路径（不带尾部 /）
-     * @param newDirPath 新目录虚拟路径（不带尾部 /）
-     */
-    public void reindexAfterDirMove(String oldDirPath, String newDirPath) {
-        if (luceneStorage == null) {
-            return;
-        }
-        String oldPrefix = oldDirPath.endsWith("/") ? oldDirPath : oldDirPath + "/";
-        // 删除旧前缀的所有索引
-        luceneStorage.deleteByPrefix(oldPrefix);
-        // 对新目录下所有文件重新建立索引
-        for (String path : fileStorage.listFilePathsUnder(newDirPath)) {
-            String text = getKnowledgeTextByPath(path);
-            luceneStorage.indexDocument(path, path, text == null ? "" : text);
-        }
-    }
-
-    /**
-     * 删除目录后同步删除该目录前缀下的所有 Lucene 索引。
-     */
-    public void deleteIndexByPrefix(String dirPath) {
-        if (luceneStorage == null) {
-            return;
-        }
-        String prefix = dirPath.endsWith("/") ? dirPath : dirPath + "/";
-        luceneStorage.deleteByPrefix(prefix);
     }
 
     /**
@@ -910,22 +816,6 @@ public class FileWorkspace implements Workspace {
         }
         if (!sessionId.matches("[0-9a-fA-F]{32}")) {
             throw new IllegalArgumentException("sessionId 必须是32位十六进制字符");
-        }
-    }
-
-    // ==================== 内部类 ====================
-
-    private static class ChunkMatch {
-        final String docId;
-        final int chunkIndex;
-        final double score;
-        final String source;
-
-        ChunkMatch(String docId, int chunkIndex, double score, String source) {
-            this.docId = docId;
-            this.chunkIndex = chunkIndex;
-            this.score = score;
-            this.source = source;
         }
     }
 }

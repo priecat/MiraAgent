@@ -6,7 +6,7 @@
 
     <groupId>net.itzq.mira</groupId>
     <artifactId>agent-core</artifactId>
-    <version>0.2.0-SNAPSHOT</version>
+    <version>0.2.1-SNAPSHOT</version>
 
 
     <properties>
@@ -19,16 +19,11 @@
 
         <freemarker.version>2.3.35</freemarker.version>
         <transmittable-thread-local.version>2.14.5</transmittable-thread-local.version>
-        <fastjson2.version>2.0.49</fastjson2.version>
 
         <jackson.version>2.15.2</jackson.version>
         <logback.version>1.2.3</logback.version>
         <slf4j.version>1.7.32</slf4j.version>
         <lombok.version>1.18.30</lombok.version>
-        <commons-lang3.version>3.13.0</commons-lang3.version>
-        <commons-io.version>2.15.0</commons-io.version>
-        <classgraph.version>4.8.165</classgraph.version>
-        <lucene.version>8.11.2</lucene.version>
         <hutool-http.version>5.8.46</hutool-http.version>
     </properties>
 
@@ -45,13 +40,6 @@
             <groupId>com.alibaba</groupId>
             <artifactId>transmittable-thread-local</artifactId>
             <version>${transmittable-thread-local.version}</version>
-        </dependency>
-
-        <!-- JSON 处理 -->
-        <dependency>
-            <groupId>com.alibaba.fastjson2</groupId>
-            <artifactId>fastjson2</artifactId>
-            <version>${fastjson2.version}</version>
         </dependency>
 
         <!-- Jackson 系列 -->
@@ -83,18 +71,6 @@
             <version>${slf4j.version}</version>
         </dependency>
 
-        <!-- Apache Commons -->
-        <dependency>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>commons-lang3</artifactId>
-            <version>${commons-lang3.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>commons-io</groupId>
-            <artifactId>commons-io</artifactId>
-            <version>${commons-io.version}</version>
-        </dependency>
-
         <!-- Lombok  -->
         <dependency>
             <groupId>org.projectlombok</groupId>
@@ -104,52 +80,17 @@
         </dependency>
 
         <dependency>
-            <groupId>io.github.classgraph</groupId>
-            <artifactId>classgraph</artifactId>
-            <version>${classgraph.version}</version>
-        </dependency>
-
-        <!-- ========== Lucene 依赖（用于混合检索） ========== -->
-        <!-- Lucene Core - 核心库  -->
-<!--        <dependency>-->
-<!--            <groupId>org.apache.lucene</groupId>-->
-<!--            <artifactId>lucene-core</artifactId>-->
-<!--            <version>${lucene.version}</version>-->
-<!--        </dependency>-->
-
-<!--        &lt;!&ndash; Lucene 分析器 - 用于文本分析 &ndash;&gt;-->
-<!--        <dependency>-->
-<!--            <groupId>org.apache.lucene</groupId>-->
-<!--            <artifactId>lucene-analyzers-common</artifactId>-->
-<!--            <version>${lucene.version}</version>-->
-<!--        </dependency>-->
-
-<!--        &lt;!&ndash; Lucene 查询解析器 &ndash;&gt;-->
-<!--        <dependency>-->
-<!--            <groupId>org.apache.lucene</groupId>-->
-<!--            <artifactId>lucene-queryparser</artifactId>-->
-<!--            <version>${lucene.version}</version>-->
-<!--        </dependency>-->
-
-<!--        &lt;!&ndash; Lucene 内存索引（可选，用于测试） &ndash;&gt;-->
-<!--        <dependency>-->
-<!--            <groupId>org.apache.lucene</groupId>-->
-<!--            <artifactId>lucene-memory</artifactId>-->
-<!--            <version>${lucene.version}</version>-->
-<!--        </dependency>-->
-
-<!--        &lt;!&ndash; Lucene 中文智能分词器 &ndash;&gt;-->
-<!--        <dependency>-->
-<!--            <groupId>org.apache.lucene</groupId>-->
-<!--            <artifactId>lucene-analyzers-smartcn</artifactId>-->
-<!--            <version>${lucene.version}</version>-->
-<!--        </dependency>-->
-
-
-        <dependency>
             <groupId>cn.hutool</groupId>
             <artifactId>hutool-http</artifactId>
             <version>${hutool-http.version}</version>
+        </dependency>
+
+        <!-- 测试：JUnit 4 -->
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.13.2</version>
+            <scope>test</scope>
         </dependency>
 
     </dependencies>
@@ -180,12 +121,20 @@
                     </execution>
                 </executions>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>2.22.2</version>
+                <configuration>
+                    <argLine>-Dfile.encoding=UTF-8</argLine>
+                </configuration>
+            </plugin>
             <!--            <plugin>-->
             <!--                <artifactId>maven-assembly-plugin</artifactId>-->
             <!--                <configuration>-->
             <!--                    <archive>-->
             <!--                        <manifest>-->
-            <!--                            <mainClass>net.itzq.mira.modules.ai.Main</mainClass>-->
+            <!--                            <mainClass>net.itzq.mira.modules.example.CoreExample</mainClass>-->
             <!--                        </manifest>-->
             <!--                        <manifestEntries>-->
             <!--                            <Class-Path>.</Class-Path>-->
@@ -231,7 +180,7 @@
 <!--                <configuration>-->
 <!--                    <archive>-->
 <!--                        <manifest>-->
-<!--                            <mainClass>net.itzq.mira.modules.ai.Main</mainClass>-->
+<!--                            <mainClass>net.itzq.mira.modules.example.CoreExample</mainClass>-->
 <!--                            &lt;!&ndash; 让 JVM 运行时能自动加载 lib 下的 jar &ndash;&gt;-->
 <!--                            <addClasspath>true</addClasspath>-->
 <!--                            <classpathPrefix>lib/</classpathPrefix>-->

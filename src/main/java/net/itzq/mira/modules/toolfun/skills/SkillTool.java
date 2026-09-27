@@ -108,7 +108,7 @@ public class SkillTool {
         }
 
         try {
-            // P5 多实例：走**本运行时**的技能仓储（目录感知缓存），不再按全局目录取包
+            // 多实例：走**本运行时**的技能仓储（目录感知缓存），不再按全局目录取包
             SkillBundle bundle = context.getRuntime().skills().getBundle(skill_name);
             if (!bundle.exists(file_path)) {
                 return ToolCallResult.error("文件不存在: " + skill_name + "/" + file_path);
@@ -156,7 +156,7 @@ public class SkillTool {
         }
 
         try {
-            // P5 多实例：走**本运行时**的技能仓储（目录感知缓存）
+            // 多实例：走**本运行时**的技能仓储（目录感知缓存）
             SkillBundle bundle = context.getRuntime().skills().getBundle(skill_name);
             Path target = Paths.get(dataDir, "skills-expand", skill_name).normalize();
             int count = bundle.expandTo(target);

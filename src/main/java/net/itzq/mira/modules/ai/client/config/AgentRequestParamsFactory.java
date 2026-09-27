@@ -1,13 +1,13 @@
 package net.itzq.mira.modules.ai.client.config;
 
-import com.alibaba.fastjson2.JSONObject;
 import lombok.extern.slf4j.Slf4j;
+import net.itzq.mira.core.utils.json.JsonObject;
 import net.itzq.mira.modules.ai.client.handle.ApiRequestParams;
 
 /**
- * 按模型声明装配请求参数（声明域收归 · P1）。
+ * 按模型声明装配请求参数。
  *
- * <p>原来这套逻辑在宿主（mira-code KernelChatEngine.buildRequestParams，读宿主 ModelConfig 的
+ * <p>原来这套逻辑在宿主（KernelChatEngine.buildRequestParams，读宿主 ModelConfig 的
  * V3 高级列）；现在模型高级参数已收归内核 {@link ModelApiConfig}，装配随之下沉内核——
  * 任何运行时只要装载了声明，就能得到一致的请求参数，无需宿主逐请求透传。
  *
@@ -78,7 +78,7 @@ public final class AgentRequestParamsFactory {
             return false;
         }
         try {
-            JSONObject obj = JSONObject.parseObject(json);
+            JsonObject obj = JsonObject.parse(json);
             if (obj == null || obj.isEmpty()) {
                 return false;
             }

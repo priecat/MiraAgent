@@ -1,7 +1,7 @@
 package net.itzq.mira.modules.ai.skills;
 
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.StringUtils;
+import net.itzq.mira.core.utils.StringUtils;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -9,7 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 技能仓储（编排运行时协议 · 实例组件）。
  *
- * <p>P5 实例化：原 {@link SkillManager} 的注册表/触发词索引/初始化状态平移到本类，
+ * <p>实例化：原 {@link SkillManager} 的注册表/触发词索引/初始化状态平移到本类，
  * 每个内核运行时（KernelRuntime）拥有独立技能清单（可指向不同 skillsDir）；
  * {@link SkillManager} 降级为委托默认运行时的静态 facade。
  *

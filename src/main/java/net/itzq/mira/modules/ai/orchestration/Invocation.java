@@ -1,9 +1,9 @@
 package net.itzq.mira.modules.ai.orchestration;
 
-import com.alibaba.fastjson2.JSON;
 import lombok.Builder;
 import lombok.Data;
 import lombok.Singular;
+import net.itzq.mira.core.utils.json.JsonUtil;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -145,7 +145,7 @@ public class Invocation {
             return Invocation.builder().build();
         }
         try {
-            return fromMap(JSON.parseObject(json));
+            return fromMap(JsonUtil.parseObject(json));
         } catch (Exception e) {
             return Invocation.builder().build();
         }
