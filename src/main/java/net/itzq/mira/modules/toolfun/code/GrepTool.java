@@ -80,7 +80,7 @@ public class GrepTool {
           )
     public String grep(
             @ToolParam(description = "正则表达式搜索模式（必填）") String pattern,
-            @ToolParam(description = "搜索目录路径", required = true) String path,
+            @ToolParam(description = "搜索目录路径，留空默认使用当前工作空间目录", required = false) String path,
             @ToolParam(description = "文件过滤 glob 模式，例如 \"*.java\"、\"**/*.xml\"", required = false) String glob,
             @ToolParam(description = "输出模式: content(显示匹配行), files_with_matches(仅文件路径, 默认), count(匹配数量)", required = false) String outputMode,
             @ToolParam(description = "显示匹配行前 N 行上下文", required = false) Integer contextBefore,
@@ -96,6 +96,12 @@ public class GrepTool {
 
         try {
             String searchPath = path;
+            if (StringUtils.isBlank(searchPath)){
+                searchPath = contextHolder.getWorkspacePath();
+            }
+            if (StringUtils.isBlank(searchPath)) {
+                return "错误：当前未设置默认工作空间，必须指定 path 参数，或向用户询问查找的根目录路径参数。";
+            }
 
             Path path0 = Paths.get(searchPath).toAbsolutePath().normalize();
             // 安全检查

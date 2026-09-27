@@ -50,11 +50,18 @@ public class GlobTool {
     public String glob(
             @ToolParam(description = "glob 模式（必填），例如 \"**/*.java\"。注意：只能写相对路径模式，不要包含盘符或根路径。",
                        required = true) String pattern,
-            @ToolParam(description = "从哪个目录开始搜索（绝对路径）",
-                       required = true) String path,
+            @ToolParam(description = "从哪个目录开始搜索（绝对路径）,留空默认使用当前工作空间目录",
+                       required = false) String path,
             AgentContextHolder contextHolder) {
 
         try {
+            if (StringUtils.isBlank(path)){
+                path = contextHolder.getWorkspacePath();
+            }
+            if (StringUtils.isBlank(path)) {
+                return "错误：当前未设置默认工作空间，必须指定 path 参数，或向用户询问查找的根目录路径参数。";
+            }
+
             Path path0 = Paths.get(path).toAbsolutePath().normalize();
             // 安全检查
             String pathStr = path0.toString();

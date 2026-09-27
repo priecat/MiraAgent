@@ -2,6 +2,7 @@ package net.itzq.mira.modules.toolfun.explorer;
 
 import lombok.extern.slf4j.Slf4j;
 import net.itzq.mira.core.utils.PromptLoader;
+import net.itzq.mira.core.utils.PropsMap;
 import net.itzq.mira.modules.ai.agent.AgentContextHolder;
 import net.itzq.mira.modules.ai.agent.SubAgent;
 import net.itzq.mira.modules.ai.tool.annotation.Tool;
@@ -47,7 +48,11 @@ public class CodeExplorerTool {
         try {
             log.info("启动 code-explorer 子代理，任务: {}", query.length() > 100 ? query.substring(0, 100) + "..." : query);
 
-            String prompt = PromptLoader.prompt(PROMPT_PATH);
+            PropsMap props = new PropsMap();
+            props.put("os_name", System.getProperty("os.name"));
+            props.put("workspace_base_path", contextHolder.getWorkspacePath());
+
+            String prompt = PromptLoader.prompt(PROMPT_PATH, props);
 
             // 创建子代理
             SubAgent explorer = new SubAgent(contextHolder, "code-explorer", prompt);

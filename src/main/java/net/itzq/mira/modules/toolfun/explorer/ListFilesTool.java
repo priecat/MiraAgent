@@ -41,15 +41,19 @@ public class ListFilesTool {
                   + "- offset: 偏移量，用于查看被截断的后续内容，默认0"
     )
     public String listFiles(
-            @ToolParam(description = "要列出的目录绝对路径") String path,
+            @ToolParam(description = "要列出的目录绝对路径，留空默认使用当前工作空间目录", required = false) String path,
             @ToolParam(description = "递归深度，默认3", required = false) Integer maxDepth,
             @ToolParam(description = "最大返回条目数，默认200", required = false) Integer maxResults,
             @ToolParam(description = "偏移量，用于查看被截断的后续内容，默认0", required = false) Integer offset,
             AgentContextHolder contextHolder) {
 
         try {
-            String searchPath = resolvePath(path, contextHolder);
-            if (searchPath == null) {
+            String searchPath = path;
+            if (StringUtils.isBlank(searchPath)) {
+                searchPath = contextHolder.getWorkspacePath();
+            }
+
+            if (StringUtils.isBlank(searchPath)) {
                 return "错误：当前未设置默认工作空间，必须指定 path 参数，或向用户询问查找的根目录路径参数。";
             }
 
@@ -151,12 +155,7 @@ public class ListFilesTool {
         }
     }
 
-    static String resolvePath(String path, AgentContextHolder contextHolder) {
-        if (StringUtils.isNotBlank(path)) {
-            return path;
-        }
-        return null;
-    }
+
 
     static String formatSize(long bytes) {
         if (bytes < 1024) return bytes + "B";

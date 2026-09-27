@@ -91,7 +91,11 @@ public class SafeBashTool {
             AgentContextHolder contextHolder) {
 
         try {
-            String workDir = GlobalConfigManager.config().getAgentConfig().getBashWorkspceDir();
+
+            String workDir = contextHolder.getWorkspacePath();
+            if (StringUtils.isBlank(workDir)){
+               return "错误：当前未设置工作空间路径，禁用 Bash 工具。";
+            }
 
             log.info("bash WorkDir: " + workDir);
 
@@ -205,7 +209,7 @@ public class SafeBashTool {
                     workDir, command, exitCode));
 
             if (warning != null) {
-                result.append(String.format("⚠️ 警告: %s\n\n", warning));
+                result.append(String.format("！！！警告: %s\n\n", warning));
             }
 
             result.append(output);
